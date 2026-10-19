@@ -279,7 +279,7 @@ class TxsApp(App):
         self.refresh_bindings()
 
     def _dismiss_filter_bar(self) -> None:
-        """Enter — hide bar, keep filter applied."""
+        """Enter — hide bar, keep filter applied, restore focus to the panel that triggered the filter."""
         self._filter_active = False
         self.query_one("#filter-bar").display = False
         panel = self.query_one(f"#{self._filter_panel_id}")
@@ -290,8 +290,7 @@ class TxsApp(App):
                 if text
                 else panel.BORDER_TITLE
             )
-        pid = self._active_panel_id()
-        self.query_one(f"#{pid}").focus()
+        self.query_one(f"#{self._filter_panel_id}").focus()
         self.refresh_bindings()
 
     def on_input_changed(self, event: Input.Changed) -> None:
