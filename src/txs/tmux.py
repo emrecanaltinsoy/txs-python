@@ -148,6 +148,34 @@ def attach_or_switch_window(session: str, win_index: str) -> None:
     raise SystemExit(1)
 
 
+def capture_active_pane(session: str) -> str:
+    """Return the text content of the active pane in session, or an empty string."""
+    panes = subprocess.run(
+        ["tmux", "list-panes", "-t", f"={session}", "-F", "#{pane_active}:#{pane_id}"],
+        capture_output=True,
+        text=True,
+    )
+    if panes.returncode != 0 or not panes.stdout.strip():
+        return ""
+    pane_id = next(
+        (
+            line.split(":", 1)[1]
+            for line in panes.stdout.splitlines()
+            if line.startswith("1:")
+        ),
+        None,
+    )
+    if not pane_id:
+        return ""
+    result = subprocess.run(
+        ["tmux", "capture-pane", "-p", "-t", pane_id],
+        capture_output=True,
+        text=True,
+        errors="replace",
+    )
+    return result.stdout if result.returncode == 0 else ""
+
+
 def open_worktree_in_session(
     session: str, worktree_path: str, on_create: str = ""
 ) -> None:

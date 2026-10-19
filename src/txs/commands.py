@@ -255,9 +255,7 @@ def _ls_worktrees() -> None:
             con.print(f"  [cyan]{proj.name}[/cyan] - {wt_name}  [dim]{wt_path}[/dim]")
 
     if not found:
-        from rich.console import Console
-
-        Console().print("[dim]No worktrees found.[/dim]")
+        con.print("[dim]No worktrees found.[/dim]")
 
 
 # ---------------------------------------------------------------------------
@@ -864,16 +862,14 @@ def cmd_clone_bare(repo_url: str, folder_name: str = "") -> None:
 
 
 def _detect_default_branch(cwd: str) -> str:
-    checks = [
-        (["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], True),
-    ]
-    for args, strip_prefix in checks:
-        res = subprocess.run(args, cwd=cwd, capture_output=True, text=True)
-        if res.returncode == 0 and res.stdout.strip():
-            val = res.stdout.strip()
-            if strip_prefix and val.startswith("origin/"):
-                val = val[len("origin/") :]
-            return val
+    res = subprocess.run(
+        ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+    )
+    if res.returncode == 0 and res.stdout.strip():
+        return res.stdout.strip().removeprefix("origin/")
 
     for branch in ("main", "master"):
         res = subprocess.run(

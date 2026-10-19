@@ -56,9 +56,8 @@ class ProjectConfig:
     default_on_create: str = ""
 
     # depth owner index: basename -> (project_name, abs_path)
-    # Built lazily by build_depth_index().
+    # None means not yet built.
     _depth_index: dict[str, tuple[str, str]] | None = field(default=None, repr=False)
-    _depth_index_built: bool = field(default=False, repr=False)
 
     # fast lookup by name
     def _by_name(self, name: str) -> Project | None:
@@ -180,10 +179,8 @@ def get_project_prop(cfg: ProjectConfig, name: str, prop: str) -> str:
 
 
 def expand_path(path: str) -> str:
-    """Expand leading ~ to HOME (mirrors expand_path in config.sh)."""
-    if path.startswith("~/") or path == "~":
-        return str(Path.home()) + path[1:]
-    return path
+    """Expand leading ~ to HOME."""
+    return str(Path(path).expanduser())
 
 
 # ---------------------------------------------------------------------------
@@ -220,9 +217,8 @@ def is_explicit_project_path(cfg: ProjectConfig, path: str) -> bool:
 
 def build_depth_index(cfg: ProjectConfig) -> None:
     """Populate cfg._depth_index (last-writer-wins, same as bash version)."""
-    if cfg._depth_index_built:
+    if cfg._depth_index is not None:
         return
-    cfg._depth_index_built = True
     cfg._depth_index = {}
 
     from txs.git import get_depth_projects  # avoid circular import at module level

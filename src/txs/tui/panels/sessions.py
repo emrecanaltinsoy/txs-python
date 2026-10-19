@@ -27,9 +27,10 @@ from txs.tmux import (
 @dataclass
 class SessionNode:
     """Data attached to each tree node."""
+
     session: str
-    wt_path: str = ""       # non-empty for worktree child nodes
-    is_leaf: bool = False   # True for nodes you can attach to directly
+    wt_path: str = ""  # non-empty for worktree child nodes
+    is_leaf: bool = False  # True for nodes you can attach to directly
 
 
 class SessionsPanel(Tree):
@@ -80,7 +81,11 @@ class SessionsPanel(Tree):
     def selected_node_data(self) -> SessionNode | None:
         if self.cursor_node is None:
             return None
-        return self.cursor_node.data if isinstance(self.cursor_node.data, SessionNode) else None
+        return (
+            self.cursor_node.data
+            if isinstance(self.cursor_node.data, SessionNode)
+            else None
+        )
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -136,11 +141,13 @@ class SessionsPanel(Tree):
             for _, wt_name in get_project_worktrees(path)
         )
 
-    def _add_worktree_children(
-        self, node: TreeNode, session: str, path: str
-    ) -> None:
+    def _add_worktree_children(self, node: TreeNode, session: str, path: str) -> None:
         for wt, wt_name in sorted(get_project_worktrees(path), key=lambda x: x[1]):
-            if self._filter and not self._matches(self._filter, wt_name) and not self._matches(self._filter, session):
+            if (
+                self._filter
+                and not self._matches(self._filter, wt_name)
+                and not self._matches(self._filter, session)
+            ):
                 continue
             matched = find_window_by_path(session, wt)
             if matched:
@@ -154,11 +161,13 @@ class SessionsPanel(Tree):
 
     def _get_expanded_keys(self) -> set[str]:
         expanded: set[str] = set()
+
         def _walk(node: TreeNode) -> None:
             if node.is_expanded and isinstance(node.data, SessionNode):
                 expanded.add(node.data.session)
             for child in node.children:
                 _walk(child)
+
         _walk(self.root)
         return expanded
 
@@ -168,6 +177,7 @@ class SessionsPanel(Tree):
                 node.expand()
             for child in node.children:
                 _walk(child)
+
         _walk(self.root)
 
     def _selected_label(self) -> str:
@@ -180,6 +190,7 @@ class SessionsPanel(Tree):
     def _restore_selection(self, label: str) -> None:
         if not label:
             return
+
         # Walk tree nodes to find a match
         def _walk(node: TreeNode) -> bool:
             d = node.data
@@ -191,4 +202,5 @@ class SessionsPanel(Tree):
                 if _walk(child):
                     return True
             return False
+
         _walk(self.root)

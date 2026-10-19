@@ -17,16 +17,17 @@ from txs.config import (
     is_explicit_project_path,
 )
 from txs.git import get_depth_projects, get_project_worktrees, is_bare_repo
-from txs.tmux import get_active_sessions
+from txs.tmux import get_active_sessions, sanitize_session_name
 
 
 @dataclass
 class ProjectNode:
     """Data attached to each tree node."""
-    project: str            # config section name / owning depth project
-    path: str               # resolved absolute path
+
+    project: str  # config section name / owning depth project
+    path: str  # resolved absolute path
     session_name: str = ""  # for leaf nodes that map to a session
-    wt_path: str = ""       # for worktree leaf nodes
+    wt_path: str = ""  # for worktree leaf nodes
     is_leaf: bool = False
 
 
@@ -76,7 +77,11 @@ class ProjectsPanel(Tree):
     def selected_node_data(self) -> ProjectNode | None:
         if self.cursor_node is None:
             return None
-        return self.cursor_node.data if isinstance(self.cursor_node.data, ProjectNode) else None
+        return (
+            self.cursor_node.data
+            if isinstance(self.cursor_node.data, ProjectNode)
+            else None
+        )
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -133,7 +138,11 @@ class ProjectsPanel(Tree):
         )
         children_added = 0
         for wt, wt_name in sorted(get_project_worktrees(path), key=lambda x: x[1]):
-            if self._filter and not self._matches(self._filter, wt_name) and not self._matches(self._filter, proj_name):
+            if (
+                self._filter
+                and not self._matches(self._filter, wt_name)
+                and not self._matches(self._filter, proj_name)
+            ):
                 continue
             node.add_leaf(
                 f"  [dim]{wt_name}[/dim]",
@@ -169,17 +178,22 @@ class ProjectsPanel(Tree):
             owner = find_depth_owner(cfg, dp_name)
             if owner is None or owner[0] != proj_name:
                 continue
-            if self._filter and not self._matches(self._filter, dp_name) and not self._matches(self._filter, proj_name):
+            if (
+                self._filter
+                and not self._matches(self._filter, dp_name)
+                and not self._matches(self._filter, proj_name)
+            ):
                 continue
 
-            active = dp_name in active_sessions
+            sname = sanitize_session_name(dp_name)
+            active = sname in active_sessions
             child_label = f"  {self._session_status(active)}{dp_name}"
 
             if is_bare_repo(dp_path):
                 child_node = node.add(
                     child_label,
                     data=ProjectNode(
-                        project=proj_name, path=dp_path, session_name=dp_name
+                        project=proj_name, path=dp_path, session_name=sname
                     ),
                     expand=False,
                 )
@@ -191,7 +205,7 @@ class ProjectsPanel(Tree):
                         data=ProjectNode(
                             project=proj_name,
                             path=dp_path,
-                            session_name=dp_name,
+                            session_name=sname,
                             wt_path=wt,
                             is_leaf=True,
                         ),
@@ -202,7 +216,7 @@ class ProjectsPanel(Tree):
                     data=ProjectNode(
                         project=proj_name,
                         path=dp_path,
-                        session_name=dp_name,
+                        session_name=sname,
                         is_leaf=True,
                     ),
                 )
@@ -218,6 +232,7 @@ class ProjectsPanel(Tree):
 
     def _expand_matching_parents(self) -> None:
         """Expand any parent node that has visible children after filtering."""
+
         def _walk(node: TreeNode) -> None:
             if node.children:
                 has_leaf = any(not c.children for c in node.children)
@@ -225,15 +240,18 @@ class ProjectsPanel(Tree):
                     node.expand()
                 for child in node.children:
                     _walk(child)
+
         _walk(self.root)
 
     def _get_expanded_keys(self) -> set[str]:
         expanded: set[str] = set()
+
         def _walk(node: TreeNode) -> None:
             if node.is_expanded and isinstance(node.data, ProjectNode):
                 expanded.add(node.data.project + "|" + node.data.path)
             for child in node.children:
                 _walk(child)
+
         _walk(self.root)
         return expanded
 
@@ -245,6 +263,7 @@ class ProjectsPanel(Tree):
                     node.expand()
             for child in node.children:
                 _walk(child)
+
         _walk(self.root)
 
     def _selected_label(self) -> str:
@@ -257,6 +276,7 @@ class ProjectsPanel(Tree):
     def _restore_selection(self, label: str) -> None:
         if not label:
             return
+
         def _walk(node: TreeNode) -> bool:
             d = node.data
             if isinstance(d, ProjectNode):
@@ -267,4 +287,5 @@ class ProjectsPanel(Tree):
                 if _walk(child):
                     return True
             return False
+
         _walk(self.root)

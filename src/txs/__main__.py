@@ -50,7 +50,11 @@ def _run_tui() -> None:
     from txs.commands import _attach_bare_repo, _ensure_session, cmd_attach, cmd_kill
     from txs.config import expand_path, get_project_prop, parse_config
     from txs.git import depth_session_name, is_bare_repo
-    from txs.tmux import attach_or_switch, open_worktree_in_session, sanitize_session_name
+    from txs.tmux import (
+        attach_or_switch,
+        open_worktree_in_session,
+        sanitize_session_name,
+    )
     from txs.tui.app import TxsApp
 
     result = TxsApp().run()
@@ -80,12 +84,21 @@ def _run_tui() -> None:
             if path and path != proj_root:
                 # Depth-discovered repo — session is the repo itself, not the parent group
                 on_create = get_project_prop(cfg, project, "on_create") if cfg else ""
-                sname = sanitize_session_name(depth_session_name(wt_path if wt_path else path))
+                sname = sanitize_session_name(
+                    depth_session_name(wt_path if wt_path else path)
+                )
                 if wt_path:
                     parent = os.path.dirname(wt_path)
                     if is_bare_repo(parent):
                         created = _ensure_session(sname, parent, on_create) == "created"
-                        _attach_bare_repo(project, parent, sname, on_create, os.path.basename(wt_path), created)
+                        _attach_bare_repo(
+                            project,
+                            parent,
+                            sname,
+                            on_create,
+                            os.path.basename(wt_path),
+                            created,
+                        )
                     else:
                         _ensure_session(sname, wt_path, on_create)
                         attach_or_switch(sname)

@@ -10,9 +10,10 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Input, Label
 
 from txs.config import invalidate_config_cache, parse_config
+from txs.tmux import get_active_sessions as _get_active_sessions
 from txs.tui.panels.preview import PreviewPanel
 from txs.tui.panels.projects import ProjectNode, ProjectsPanel
-from txs.tui.panels.sessions import SessionNode, SessionsPanel
+from txs.tui.panels.sessions import SessionsPanel
 
 
 class TxsApp(App):
@@ -27,7 +28,7 @@ class TxsApp(App):
         Binding("l", "next_panel", "▶ panel", show=False, priority=True),
         Binding("j", "cursor_down", "▼", show=False, priority=True),
         Binding("k", "cursor_up", "▲", show=False, priority=True),
-        Binding("a", "attach", "Attach"),
+        Binding("a", "attach", "Attach", key_display="a/↵"),
         Binding("x", "kill_session", "Kill"),
         Binding("slash", "start_filter", "Filter"),
         Binding("escape", "clear_filter", "Clear filter", show=False),
@@ -39,6 +40,7 @@ class TxsApp(App):
         super().__init__()
         self._cfg = None
         self._filter_active = False
+        self._filter_panel_id: str = "sessions-tree"
 
     # ------------------------------------------------------------------
     # Helpers — always derived from self.focused, never stale
@@ -83,7 +85,16 @@ class TxsApp(App):
         self.query_one("#filter-bar").display = False
         self._load_config()
         self._refresh_all()
+        self._select_first_items()
         self.query_one(SessionsPanel).focus()
+        self._update_preview()
+
+    def _select_first_items(self) -> None:
+        """On startup only: move cursor to first item in each panel."""
+        for panel in [self.query_one(SessionsPanel), self.query_one(ProjectsPanel)]:
+            children = list(panel.root.children)
+            if children:
+                panel.move_cursor(children[0])
 
     # ------------------------------------------------------------------
     # Data
@@ -108,25 +119,29 @@ class TxsApp(App):
     # Preview
     # ------------------------------------------------------------------
 
-    def _update_preview(self) -> None:
+    def _update_preview(self, panel_id: str | None = None) -> None:
+        panel_id = panel_id or self._active_panel_id()
         preview = self.query_one(PreviewPanel)
-        session = self._focused_session()
-        if session:
-            preview.show_session(session)
-        else:
-            preview.clear_preview("Select a session to preview")
 
-    def _focused_session(self) -> str:
-        panel_id = self._active_panel_id()
         if panel_id == "sessions-tree":
             data = self.query_one(SessionsPanel).selected_node_data()
-            if data:
-                return data.session
+            session = data.session if data else ""
+            if session:
+                preview.show_session(session)
+            else:
+                preview.clear_preview("Select a session to preview")
         else:
             data = self.query_one(ProjectsPanel).selected_node_data()
             if isinstance(data, ProjectNode) and data.session_name:
-                return data.session_name
-        return ""
+                active = set(_get_active_sessions())
+                if data.session_name in active:
+                    preview.show_session(data.session_name)
+                else:
+                    preview.clear_preview(
+                        f"  {data.project}\n  {data.wt_path or data.path}\n\n  Inactive — press 'a' to start"
+                    )
+            else:
+                preview.clear_preview("Select a project to preview")
 
     # ------------------------------------------------------------------
     # Panel navigation
@@ -137,12 +152,14 @@ class TxsApp(App):
             return
         idx = (self._active_panel_idx() + 1) % len(self._PANELS)
         self.query_one(f"#{self._PANELS[idx]}").focus()
+        self._update_preview(self._PANELS[idx])
 
     def action_prev_panel(self) -> None:
         if self._filter_active:
             return
         idx = (self._active_panel_idx() - 1) % len(self._PANELS)
         self.query_one(f"#{self._PANELS[idx]}").focus()
+        self._update_preview(self._PANELS[idx])
 
     def action_cursor_down(self) -> None:
         if self._filter_active:
@@ -190,20 +207,33 @@ class TxsApp(App):
     # Actions
     # ------------------------------------------------------------------
 
+    def _attach_selected_session(self) -> None:
+        data = self.query_one(SessionsPanel).selected_node_data()
+        if data is None or not data.is_leaf:
+            return
+        self.app.exit(("attach_session", data.session, data.wt_path))
+
     def action_attach(self) -> None:
-        panel_id = self._active_panel_id()
-
-        if panel_id == "sessions-tree":
-            data = self.query_one(SessionsPanel).selected_node_data()
-            if data is None or not data.is_leaf:
-                return
-            self.app.exit(("attach_session", data.session, data.wt_path))
-
+        if self._active_panel_id() == "sessions-tree":
+            self._attach_selected_session()
         else:
             data = self.query_one(ProjectsPanel).selected_node_data()
             if data is None or not isinstance(data, ProjectNode) or not data.is_leaf:
                 return
-            self.app.exit(("attach_project", data.project, data.path, data.wt_path, data.session_name))
+            self.app.exit(
+                (
+                    "attach_project",
+                    data.project,
+                    data.path,
+                    data.wt_path,
+                    data.session_name,
+                )
+            )
+
+    def on_key(self, event) -> None:
+        if event.key == "enter" and isinstance(self.focused, SessionsPanel):
+            self._attach_selected_session()
+            event.stop()
 
     def action_kill_session(self) -> None:
         data = self.query_one(SessionsPanel).selected_node_data()
@@ -225,6 +255,7 @@ class TxsApp(App):
     # ------------------------------------------------------------------
 
     def action_start_filter(self) -> None:
+        self._filter_panel_id = self._active_panel_id()
         self._filter_active = True
         self.query_one("#filter-bar").display = True
         inp = self.query_one("#filter-input", Input)
@@ -251,11 +282,13 @@ class TxsApp(App):
         """Enter — hide bar, keep filter applied."""
         self._filter_active = False
         self.query_one("#filter-bar").display = False
-        panel = self._get_active_tree()
+        panel = self.query_one(f"#{self._filter_panel_id}")
         if panel:
             text = self.query_one("#filter-input", Input).value
             panel.border_title = (
-                f"{panel.BORDER_TITLE}  [dim]/ {text}[/dim]" if text else panel.BORDER_TITLE
+                f"{panel.BORDER_TITLE}  [dim]/ {text}[/dim]"
+                if text
+                else panel.BORDER_TITLE
             )
         pid = self._active_panel_id()
         self.query_one(f"#{pid}").focus()
@@ -264,7 +297,7 @@ class TxsApp(App):
     def on_input_changed(self, event: Input.Changed) -> None:
         if not self._filter_active:
             return
-        panel = self._get_active_tree()
+        panel = self.query_one(f"#{self._filter_panel_id}")
         if panel and self._cfg:
             panel.set_filter(event.value)
             panel.refresh_data(self._cfg)
