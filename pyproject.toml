@@ -22,7 +22,7 @@ Issues = "https://github.com/emrecanaltinsoy/txs-python/issues"
 Changelog = "https://github.com/emrecanaltinsoy/txs-python/releases"
 
 [project.scripts]
-txs-python = "txs.__main__:main"
+txs = "txs.__main__:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/txs"]

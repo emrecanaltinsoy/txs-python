@@ -39,20 +39,26 @@ default worktree so you can keep using Git worktrees cleanly.
 ### uv (recommended)
 
 ```sh
-uv tool install txs
+uv tool install txs-python
 ```
 
 ### pip
 
 ```sh
-pip install txs
+pip install txs-python
 ```
 
 ### From source
 
 ```sh
 git clone https://github.com/emrecanaltinsoy/txs-python.git
-cd txs
+cd txs-python
+uv tool install .
+```
+
+Or with make:
+
+```sh
 make install
 ```
 

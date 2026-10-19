@@ -1,7 +1,7 @@
 """
 txs CLI entry point — mirrors bin/txs.
 
-Registered as 'txs-python' in pyproject.toml during development.
+Registered as 'txs' in pyproject.toml.
 """
 
 from __future__ import annotations
