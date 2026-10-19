@@ -11,14 +11,17 @@ This is a Python rewrite of [txs](https://github.com/emrecanaltinsoy/txs), the o
 Inspired by [ThePrimeagen's tmux-sessionizer](https://github.com/ThePrimeagen/tmux-sessionizer) and [jrmoulton's tmux-sessionizer](https://github.com/jrmoulton/tmux-sessionizer), tailored to my workflow for managing multiple projects in separate tmux sessions with custom layouts.
 
 txs lets you define your projects in a simple INI-style configuration file and
-quickly create, switch to, list, or kill tmux sessions. It includes an
-interactive fuzzy-finder picker powered by fzf.
+quickly create, switch to, list, or kill tmux sessions. It includes both an
+interactive fuzzy-finder picker powered by fzf and a full terminal UI (TUI)
+built with Textual.
 
 It also includes a helper command to clone repositories as bare repos with a
 default worktree so you can keep using Git worktrees cleanly.
 
 ## Features
 
+- **TUI** — lazygit-style terminal UI with sessions, projects, and agents panels
+- **Agent management** — launch and track `pi` agents inside dedicated tmux windows
 - **Interactive session picker** — fuzzy-find and switch between projects with fzf
 - **Bare repo worktree support** — clone, list, and switch between worktrees
 - **INI-style configuration** — define projects with paths, custom session names, and on-create commands
@@ -28,11 +31,12 @@ default worktree so you can keep using Git worktrees cleanly.
 
 ## Dependencies
 
-| Dependency | Required |
-|------------|----------|
-| Python     | Yes (≥ 3.10) |
-| tmux       | Yes      |
-| fzf        | No (needed for interactive mode) |
+| Dependency | Required | Notes |
+|------------|----------|-------|
+| Python     | Yes (≥ 3.10) | |
+| tmux       | Yes      | |
+| fzf        | No       | Needed for `txs switch` and the fzf picker |
+| Textual    | Yes      | Installed automatically; powers the TUI |
 
 ## Installation
 
@@ -141,11 +145,11 @@ For additional fzf customization (colors, keybindings, layout, etc.), use the
 ## Usage
 
 ```text
-txs                            Interactive fuzzy-finder session picker
+txs                            Open the TUI (no args)
 
 Session management:
   txs attach [name] [worktree]   Attach to a session / open a worktree
-  txs switch                     Pick from open sessions/windows only
+  txs switch                     Pick from open sessions/windows only (fzf)
   txs kill [name]                Kill a session (interactive picker when no arg)
   txs kill window                Kill a specific window across all sessions
   txs ls [sessions|projects|worktrees]
@@ -172,6 +176,65 @@ Aliases:
   sessions  -> ls sessions
   projects  -> ls projects
 ```
+
+## TUI
+
+Running `txs` with no arguments opens a lazygit-style terminal UI.
+
+```text
+┌─ Sessions ─────────────┐ ┌─ Preview ──────────────────────────────┐
+│ * myproject            │ │ nvim .                                  │
+│ * api                  │ │ npm run dev                             │
+│   └ feature-auth       │ │ ...                                     │
+└────────────────────────┘ └────────────────────────────────────────┘
+┌─ Projects ─────────────┐
+│   dotfiles             │
+│   frontend             │
+└────────────────────────┘
+┌─ Agents ───────────────┐
+│ myproject              │
+│   auth refactor @      │
+│   main  [pi · running] │
+└────────────────────────┘
+```
+
+### Panels
+
+- **Sessions** — active tmux sessions; bare repo sessions expand to show their worktrees
+- **Projects** — all configured projects with active/inactive status
+- **Agents** — `pi` agents grouped by session, with running/idle status
+- **Preview** — live capture of the focused session's active pane
+
+### TUI keybindings
+
+| Key       | Action                                              |
+|-----------|-----------------------------------------------------|
+| `h` / `l` | Navigate between panels                             |
+| `j` / `k` | Move cursor up/down (also `↑` / `↓`)               |
+| `s` / `↵` | Switch to / attach selected session or project      |
+| `a`       | Launch a new `pi` agent for the focused session     |
+| `x`       | Kill focused session (Sessions panel) or agent pane (Agents panel) |
+| `/`       | Filter current panel (Sessions and Projects panels) |
+| `Esc`     | Clear filter                                        |
+| `r`       | Refresh all panels                                  |
+| `q`       | Quit                                                |
+
+### Launching agents
+
+Press `a` to launch a `pi` agent:
+
+- **From the Sessions panel** — uses the currently focused session
+- **From the Agents panel** — shows a session picker first
+
+You are prompted for an optional label (e.g. `auth refactor`). The agent
+is displayed as `<label> @ <directory>` in the Agents panel.
+
+Each session gets a single dedicated `agents` tmux window. Multiple agents
+are split horizontally inside it. Selecting an agent in the TUI switches
+directly to that session and focuses the correct pane.
+
+Kill an agent with `x` on the Agents panel — if it was the last pane the
+`agents` window is removed automatically.
 
 ### Clone Bare For Worktrees
 

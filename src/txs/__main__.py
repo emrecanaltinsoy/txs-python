@@ -54,6 +54,7 @@ def _run_tui() -> None:
         attach_or_switch,
         open_worktree_in_session,
         sanitize_session_name,
+        switch_to_agent,
     )
     from txs.tui.app import TxsApp
 
@@ -111,6 +112,13 @@ def _run_tui() -> None:
 
         case "kill_session":
             cmd_kill(args[0])
+
+        case "attach_agent":
+            session, pane_id = args
+            if pane_id:
+                switch_to_agent(session, pane_id)
+            else:
+                attach_or_switch(session)
 
 
 # ---------------------------------------------------------------------------

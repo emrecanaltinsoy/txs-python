@@ -24,6 +24,12 @@ ProjectsPanel {
     padding: 0 1;
 }
 
+AgentsPanel {
+    height: 1fr;
+    border: round $surface-lighten-2;
+    padding: 0 1;
+}
+
 /* ── Right column — preview ───────────────────────────────────────────── */
 
 PreviewPanel {
@@ -36,6 +42,7 @@ PreviewPanel {
 /* Active (focused) panel gets a highlighted border */
 SessionsPanel:focus-within,
 ProjectsPanel:focus-within,
+AgentsPanel:focus-within,
 PreviewPanel:focus-within {
     border: round $accent;
 }

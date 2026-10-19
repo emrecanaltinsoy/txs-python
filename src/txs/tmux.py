@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from dataclasses import dataclass
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -146,6 +147,198 @@ def attach_or_switch_window(session: str, win_index: str) -> None:
 
     error("Cannot attach to tmux: no interactive terminal or tmux client available.")
     raise SystemExit(1)
+
+
+# ---------------------------------------------------------------------------
+# Agent helpers
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class AgentInfo:
+    session: str
+    pane_id: str  # %N — unique pane id
+    pane_index: str  # window-relative pane index
+    title: str  # pane title (user label @ branch)
+    command: str  # pane_current_command
+
+    @property
+    def is_running(self) -> bool:
+        return self.command == "pi"
+
+
+AGENTS_WINDOW = "agents"
+
+
+def get_agents() -> list[AgentInfo]:
+    """Return all panes inside windows named 'agents' across all sessions."""
+    result = subprocess.run(
+        [
+            "tmux",
+            "list-panes",
+            "-a",
+            "-F",
+            "#{session_name}|#{window_name}|#{pane_id}|#{pane_index}|#{@txs_label}|#{pane_current_command}",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return []
+    agents = []
+    for line in result.stdout.splitlines():
+        if not line:
+            continue
+        session, window, pane_id, pane_index, label, command = line.split("|", 5)
+        if window != AGENTS_WINDOW:
+            continue
+        agents.append(
+            AgentInfo(
+                session=session,
+                pane_id=pane_id,
+                pane_index=pane_index,
+                title=label or command,
+                command=command,
+            )
+        )
+    return agents
+
+
+def _agents_window_exists(session: str) -> bool:
+    result = subprocess.run(
+        ["tmux", "list-windows", "-t", session, "-F", "#{window_name}"],
+        capture_output=True,
+        text=True,
+    )
+    return AGENTS_WINDOW in result.stdout.splitlines()
+
+
+def _set_agent_label(pane_id: str, label: str) -> None:
+    """Store label as a tmux pane user option — survives shell title overwrites."""
+    subprocess.run(
+        ["tmux", "set-option", "-p", "-t", pane_id, "@txs_label", label],
+        check=True,
+    )
+
+
+def launch_agent(session: str, label: str, cwd: str) -> None:
+    """
+    Open a new pane in the 'agents' window of session (creating the window
+    if needed), set its title to label, and start pi.
+    """
+    if not _agents_window_exists(session):
+        # Use "session:" (append to end) — "=session" resolves to a window
+        # position and can collide with an existing index.
+        # -P -F gives us the new pane id so we can target it directly.
+        result = subprocess.run(
+            [
+                "tmux",
+                "new-window",
+                "-t",
+                f"{session}:",
+                "-n",
+                AGENTS_WINDOW,
+                "-c",
+                cwd,
+                "-P",
+                "-F",
+                "#{pane_id}",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        pane_id = result.stdout.strip()
+        _set_agent_label(pane_id, label)
+        subprocess.run(["tmux", "send-keys", "-t", pane_id, "pi", "Enter"], check=True)
+    else:
+        # Split horizontally inside the agents window
+        result = subprocess.run(
+            [
+                "tmux",
+                "split-window",
+                "-h",
+                "-t",
+                f"={session}:{AGENTS_WINDOW}",
+                "-c",
+                cwd,
+                "-P",
+                "-F",
+                "#{pane_id}",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        pane_id = result.stdout.strip()
+        _set_agent_label(pane_id, label)
+        subprocess.run(["tmux", "send-keys", "-t", pane_id, "pi", "Enter"], check=True)
+
+
+def kill_agent(pane_id: str, session: str) -> None:
+    """Kill an agent pane; remove the agents window if it was the last pane."""
+    # Count panes in the agents window before killing
+    result = subprocess.run(
+        [
+            "tmux",
+            "list-panes",
+            "-t",
+            f"={session}:{AGENTS_WINDOW}",
+            "-F",
+            "#{pane_id}",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    pane_count = len([line for line in result.stdout.splitlines() if line])
+    subprocess.run(["tmux", "kill-pane", "-t", pane_id], check=True)
+    if pane_count <= 1:
+        # Was the last pane — window is already gone, nothing more to do
+        pass
+
+
+def switch_to_agent(session: str, pane_id: str) -> None:
+    """Attach to session, switch to agents window, focus the given pane."""
+    subprocess.run(
+        ["tmux", "select-window", "-t", f"={session}:{AGENTS_WINDOW}"],
+        check=True,
+    )
+    subprocess.run(["tmux", "select-pane", "-t", pane_id], check=True)
+    attach_or_switch(session)
+
+
+def get_session_worktree_paths(session: str) -> list[tuple[str, str]]:
+    """
+    Return (path, name) pairs for every open window in session whose
+    pane cwd looks like a worktree (i.e. has an open pane with a real path).
+    Used to offer a cwd picker when launching an agent.
+    """
+    # list-windows to get windows for this session, then list-panes per window
+    wins = subprocess.run(
+        ["tmux", "list-windows", "-t", session, "-F", "#{window_name}"],
+        capture_output=True,
+        text=True,
+    )
+    seen: dict[str, str] = {}
+    for window in wins.stdout.splitlines():
+        if not window or window == AGENTS_WINDOW:
+            continue
+        result = subprocess.run(
+            [
+                "tmux",
+                "list-panes",
+                "-t",
+                f"{session}:{window}",
+                "-F",
+                "#{pane_current_path}",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        for path in result.stdout.splitlines():
+            if path and path not in seen:
+                seen[path] = window
+    return [(path, name) for path, name in seen.items()]
 
 
 def capture_active_pane(session: str) -> str:
