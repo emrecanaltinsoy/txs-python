@@ -28,7 +28,7 @@ class TxsApp(App):
         Binding("l", "next_panel", "▶ panel", show=False, priority=True),
         Binding("j", "cursor_down", "▼", show=False, priority=True),
         Binding("k", "cursor_up", "▲", show=False, priority=True),
-        Binding("a", "attach", "Attach", key_display="a/↵"),
+        Binding("s", "attach", "Switch", key_display="s/↵"),
         Binding("x", "kill_session", "Kill"),
         Binding("slash", "start_filter", "Filter"),
         Binding("escape", "clear_filter", "Clear filter", show=False),
@@ -231,8 +231,10 @@ class TxsApp(App):
             )
 
     def on_key(self, event) -> None:
-        if event.key == "enter" and isinstance(self.focused, SessionsPanel):
-            self._attach_selected_session()
+        if event.key == "enter" and isinstance(
+            self.focused, (SessionsPanel, ProjectsPanel)
+        ):
+            self.action_attach()
             event.stop()
 
     def action_kill_session(self) -> None:
