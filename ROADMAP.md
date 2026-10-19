@@ -6,52 +6,6 @@ Ideas and planned features, roughly ordered by priority.
 
 ## Near-term
 
-### `on_attach` hook
-
-A companion to `on_create` that runs every time you attach to a session, not just on creation.
-Useful for activating virtualenvs, loading `.env` files, `nvm use`, `conda activate`, etc.
-
-```ini
-[my-project]
-path = ~/projects/my-project
-on_create = tmux split-window -v
-    nvim .
-on_attach = source .venv/bin/activate
-```
-
-### Tags + picker filtering
-
-Tag projects and filter the fzf picker by typing `@tag`.
-Especially useful when `max_depth` surfaces 20+ repos and you want to narrow to a subset.
-
-```ini
-[api]
-path = ~/projects/api
-tags = work, backend
-
-[frontend]
-path = ~/projects/frontend
-tags = work, frontend
-```
-
-### `txs rename <old> <new>`
-
-Rename a project in the config and the live tmux session in one command.
-
-### `txs import <dir>`
-
-Bulk-add all git repos found directly inside a directory, without setting `max_depth`.
-One-shot alternative to `txs add` for bootstrapping a new machine.
-
-### fzf preview pane
-
-Show `git log --oneline` or the project `README.md` when hovering over an entry in the picker.
-Controlled via `config`:
-
-```ini
-fzf_preview = true
-```
-
 ---
 
 ## TUI (Textual)
@@ -88,9 +42,22 @@ as an alternative to the fzf picker. Invoked via `txs tui` (or replaces `txs` wi
 | `a` | Launch agent in focused session |
 | `q` / `Esc` | Quit |
 
+### Tags
+
+User-defined tags on projects for filtering panels with `@tag`.
+
+```ini
+[api]
+path = ~/projects/api
+tags = work, backend
+```
+
 ### Panels
 
 - **Active sessions** — live tmux sessions with their open windows
 - **All projects** — everything from `projects.conf`, active/inactive status
-- **Agents** — active AI agents per session, with status (idle / thinking / waiting)
-- **Preview** — git log, branch info, or README for the focused item
+- **Agents** — active AI agents per session, with status (idle / thinking / waiting).
+  Detect by scanning tmux pane process names for known agents (pi, claude, codex, etc.).
+  Keybindings: `n` launch agent in current session, `N` pick any active session to launch in.
+  Open question: one window per agent vs. grouped agents panel — to be decided when implemented.
+- **Preview** — git log, branch info, or `README.md` for the focused item; replaces the fzf preview pane concept

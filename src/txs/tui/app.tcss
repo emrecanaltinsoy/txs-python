@@ -1,0 +1,105 @@
+/* ── Root layout ──────────────────────────────────────────────────────── */
+
+TxsApp {
+    layout: horizontal;
+}
+
+/* ── Left column ──────────────────────────────────────────────────────── */
+
+#left-col {
+    layout: vertical;
+    width: 1fr;
+    height: 100%;
+}
+
+SessionsPanel {
+    height: 1fr;
+    border: round $surface-lighten-2;
+    padding: 0 1;
+}
+
+ProjectsPanel {
+    height: 1fr;
+    border: round $surface-lighten-2;
+    padding: 0 1;
+}
+
+/* ── Right column — preview ───────────────────────────────────────────── */
+
+PreviewPanel {
+    width: 2fr;
+    height: 100%;
+    border: round $surface-lighten-2;
+    padding: 0 1;
+}
+
+/* Active (focused) panel gets a highlighted border */
+SessionsPanel:focus-within,
+ProjectsPanel:focus-within,
+PreviewPanel:focus-within {
+    border: round $accent;
+}
+
+/* ── Tree ─────────────────────────────────────────────────────────────── */
+
+Tree {
+    background: transparent;
+    scrollbar-size: 1 1;
+}
+
+Tree > .tree--guides {
+    color: $surface-lighten-3;
+}
+
+Tree > .tree--guides-hover {
+    color: $accent-lighten-1;
+}
+
+Tree > .tree--guides-selected {
+    color: $accent;
+}
+
+/* ── Filter bar ───────────────────────────────────────────────────────── */
+
+#filter-bar {
+    layout: horizontal;
+    dock: bottom;
+    height: 3;
+    display: none;
+    background: $surface-darken-2;
+    border: tall $accent;
+    padding: 0 1;
+}
+
+#filter-bar.visible {
+    display: block;
+}
+
+#filter-label {
+    width: auto;
+    height: 1;
+    content-align: left middle;
+    color: $accent;
+    padding: 0 1 0 0;
+}
+
+#filter-input {
+    width: 1fr;
+    background: $surface-darken-2;
+    border: none;
+    height: 1;
+    color: $text;
+}
+
+/* ── Preview content ──────────────────────────────────────────────────── */
+
+#preview-content {
+    scrollbar-size: 1 1;
+    background: transparent;
+}
+
+/* ── Footer ───────────────────────────────────────────────────────────── */
+
+Footer {
+    background: $surface-darken-2;
+}

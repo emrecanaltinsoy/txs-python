@@ -42,9 +42,62 @@ def _root(
         typer.echo(f"txs {TXS_VERSION}")
         raise typer.Exit()
     if ctx.invoked_subcommand is None:
-        from txs.ui import cmd_interactive
+        _run_tui()
 
-        cmd_interactive()
+
+def _run_tui() -> None:
+    import os
+    from txs.commands import _attach_bare_repo, _ensure_session, cmd_attach, cmd_kill
+    from txs.config import expand_path, get_project_prop, parse_config
+    from txs.git import depth_session_name, is_bare_repo
+    from txs.tmux import attach_or_switch, open_worktree_in_session, sanitize_session_name
+    from txs.tui.app import TxsApp
+
+    result = TxsApp().run()
+
+    if not result:
+        return
+
+    action, *args = result
+
+    match action:
+        case "attach_session":
+            session, wt_path = args
+            if wt_path:
+                open_worktree_in_session(session, wt_path)
+            else:
+                attach_or_switch(session)
+
+        case "attach_project":
+            project, path, wt_path, session_name = args
+            # Check if this is a depth-discovered repo (path != the project's own root)
+            try:
+                cfg = parse_config()
+                proj_root = expand_path(get_project_prop(cfg, project, "path"))
+            except SystemExit:
+                proj_root = ""
+
+            if path and path != proj_root:
+                # Depth-discovered repo — session is the repo itself, not the parent group
+                on_create = get_project_prop(cfg, project, "on_create") if cfg else ""
+                sname = sanitize_session_name(depth_session_name(wt_path if wt_path else path))
+                if wt_path:
+                    parent = os.path.dirname(wt_path)
+                    if is_bare_repo(parent):
+                        created = _ensure_session(sname, parent, on_create) == "created"
+                        _attach_bare_repo(project, parent, sname, on_create, os.path.basename(wt_path), created)
+                    else:
+                        _ensure_session(sname, wt_path, on_create)
+                        attach_or_switch(sname)
+                else:
+                    _ensure_session(sname, path, on_create)
+                    attach_or_switch(sname)
+            else:
+                # Direct project
+                cmd_attach(project, wt_path or "")
+
+        case "kill_session":
+            cmd_kill(args[0])
 
 
 # ---------------------------------------------------------------------------
