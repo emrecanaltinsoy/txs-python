@@ -49,11 +49,30 @@ class PreviewPanel(Widget):
     def _capture(session: str) -> str:
         if not session:
             return ""
-        result = subprocess.run(
-            ["tmux", "capture-pane", "-p", "-e", "-t", f"={session}"],
+        # capture-pane -t "=name" fails as a pane target in tmux 3.7+
+        # (rc=1, error on stderr). list-panes -t "=name" resolves correctly;
+        # capture by pane ID instead.
+        panes = subprocess.run(
+            ["tmux", "list-panes", "-t", f"={session}", "-F", "#{pane_active}:#{pane_id}"],
             capture_output=True,
             text=True,
         )
+        if panes.returncode != 0 or not panes.stdout.strip():
+            return "(session not active)"
+        pane_id = None
+        for line in panes.stdout.strip().splitlines():
+            active, _, pid = line.partition(":")
+            if active == "1":
+                pane_id = pid
+                break
+        if not pane_id:
+            return "(session not active)"
+        result = subprocess.run(
+            ["tmux", "capture-pane", "-p", "-t", pane_id],
+            capture_output=True,
+            text=True,
+            errors="replace",
+        )
         if result.returncode != 0:
-            return f"[session '{session}' not available]"
+            return "(capture failed)"
         return result.stdout
