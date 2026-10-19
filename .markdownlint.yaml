@@ -1,0 +1,17 @@
+# markdownlint configuration
+# https://github.com/DavidAnson/markdownlint/blob/main/doc/Rules.md
+
+default: true
+
+# Allow longer lines (URLs and tables make this impractical to enforce)
+MD013: false
+
+# Allow duplicate headings in different sections
+MD024:
+  siblings_only: true
+
+# Allow raw HTML (used in README badges)
+MD033: false
+
+# Allow first line to not be a top-level heading (ROADMAP, examples etc.)
+MD041: false

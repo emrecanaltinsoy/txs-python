@@ -1,0 +1,55 @@
+# txs project configuration
+#
+# Format: INI-style sections where each [section] defines a project.
+#
+# Available keys:
+#   path         (required) - Directory path for the project (~ is expanded)
+#   session_name (optional) - Custom tmux session name (default: section name)
+#   on_create    (optional) - Command to run in the session after creation
+#   max_depth    (optional) - Scan subdirectories up to this depth for git repos.
+#                             Stops descending into a dir once a git repo is found.
+#                             Each discovered repo becomes a separate picker entry.
+#                             Session name = directory basename. (default: 0 = disabled)
+#
+# Multi-line on_create: indent continuation lines with whitespace.
+# Each line is sent as a separate tmux send-keys command.
+#
+#   on_create = tmux split-window -v -l 20
+#       tmux select-pane -t 1
+#       nvim .
+#
+# Notes:
+#   - The [DEFAULT] section provides fallback values for all projects.
+#   - Only ~ is expanded in paths; $HOME and other variables are not.
+#   - Dots in session names are replaced with dashes (tmux restriction).
+#   - max_depth is not supported in [DEFAULT].
+
+[DEFAULT]
+# on_create = echo "session ready"
+
+# Uncomment and customize the examples below:
+
+# [my-project]
+# path = ~/projects/my-project
+# session_name = myproj
+# on_create = nvim .
+
+# [dotfiles]
+# path = ~/dotfiles
+# on_create = tmux split-window -v -l 20
+#     tmux select-pane -t 1
+#     nvim .
+
+# [webapp]
+# path = ~/projects/webapp
+# on_create = tmux split-window -v -l 20
+#     tmux split-window -h -d
+#     tmux send-keys -t 3 "npm run dev" Enter
+#     tmux select-pane -t 1
+#     nvim .
+
+# max_depth example: scan ~/projects up to 2 levels deep, stopping at git repos.
+# [work]
+# path = ~/projects
+# max_depth = 2
+# on_create = nvim .

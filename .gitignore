@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+
+# Editor swap/backup files
+*.swp
+*.swo
+*.bak
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE directories
+.idea/
+.vscode/
+
+# Logs
+*.log
+
+# OpenCode
+.opencode
+
+graphify-out/**
+.pi/**
+!.pi/skills/
+!.pi/skills/**
+
+txsbench

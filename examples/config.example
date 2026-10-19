@@ -1,0 +1,16 @@
+# txs settings
+#
+# Tool-level configuration for txs behavior.
+# Format: key = value (one per line, # for comments)
+#
+# Available settings:
+#   auto_add_clone - Automatically add repos cloned with 'txs clone-bare'
+#                    to the project config (true/false, default: true)
+#   fzf_height     - Height of fzf picker (default: 50%)
+#                    Accepts any value fzf supports: percentage or line count
+#
+# For additional fzf customization (colors, keybindings, layout, etc.)
+# use the FZF_DEFAULT_OPTS environment variable. See: man fzf
+
+auto_add_clone = true
+# fzf_height = 50%

@@ -1,0 +1,95 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  checks:
+    uses: ./.github/workflows/checks.yml
+
+  release:
+    name: GitHub Release
+    needs: checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build package
+        run: uv build
+
+      - name: Generate release notes
+        run: |
+          TAG="${{ github.ref_name }}"
+          PREV_TAG=$(git tag --sort=-v:refname | grep -v "^${TAG}$" | head -n1 || true)
+
+          if [[ -z "$PREV_TAG" ]]; then
+            RANGE="$TAG"
+          else
+            RANGE="${PREV_TAG}..${TAG}"
+          fi
+
+          COMMITS=$(git log "$RANGE" --pretty=format:"%s" --no-merges 2>/dev/null || true)
+
+          BREAKING_NOTES=""
+          FEAT_NOTES=""
+          FIX_NOTES=""
+          OTHER_NOTES=""
+
+          if [[ -n "$COMMITS" ]]; then
+            while IFS= read -r msg; do
+              [[ "$msg" =~ ^chore\(release\): ]] && continue
+              is_breaking=false
+              if [[ "$msg" =~ ^[a-z]+(\(.+\))?!: ]] || [[ "$msg" == *"BREAKING CHANGE"* ]]; then
+                BREAKING_NOTES+="- ${msg}"$'\n'
+                is_breaking=true
+              fi
+              if ! $is_breaking; then
+                if [[ "$msg" =~ ^feat(\(.+\))?!?:\ (.+) ]]; then
+                  FEAT_NOTES+="- ${BASH_REMATCH[2]}"$'\n'
+                elif [[ "$msg" =~ ^fix(\(.+\))?!?:\ (.+) ]]; then
+                  FIX_NOTES+="- ${BASH_REMATCH[2]}"$'\n'
+                elif [[ "$msg" =~ ^[a-z]+(\(.+\))?:\ (.+) ]]; then
+                  OTHER_NOTES+="- ${BASH_REMATCH[2]}"$'\n'
+                fi
+              fi
+            done <<< "$COMMITS"
+          fi
+
+          NOTES=""
+          [[ -n "$BREAKING_NOTES" ]] && NOTES+="## Breaking Changes"$'\n'"${BREAKING_NOTES}"$'\n'
+          [[ -n "$FEAT_NOTES" ]]     && NOTES+="## Features"$'\n'"${FEAT_NOTES}"$'\n'
+          [[ -n "$FIX_NOTES" ]]      && NOTES+="## Bug Fixes"$'\n'"${FIX_NOTES}"$'\n'
+          [[ -n "$OTHER_NOTES" ]]    && NOTES+="## Other Changes"$'\n'"${OTHER_NOTES}"$'\n'
+
+          NOTES+="## Installation"$'\n'$'\n'
+          NOTES+='```sh'$'\n'
+          NOTES+="uv tool install txs-python==${TAG#v}"$'\n'
+          NOTES+='```'$'\n'$'\n'
+          NOTES+="or"$'\n'$'\n'
+          NOTES+='```sh'$'\n'
+          NOTES+="pip install txs-python==${TAG#v}"$'\n'
+          NOTES+='```'$'\n'
+
+          echo "$NOTES" > release-notes.md
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+
+          gh release create "$TAG" \
+            --title "txs ${TAG}" \
+            --notes-file release-notes.md \
+            dist/txs-${VERSION}-*.whl \
+            dist/txs-${VERSION}.tar.gz
