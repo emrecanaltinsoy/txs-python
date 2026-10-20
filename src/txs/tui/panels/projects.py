@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-from textual.widgets import Tree
 from textual.widgets._tree import TreeNode
 
 from txs.config import (
@@ -15,9 +14,11 @@ from txs.config import (
     find_depth_owner,
     get_project_prop,
     is_explicit_project_path,
+    setting_bool,
 )
 from txs.git import get_depth_projects, get_project_worktrees, is_bare_repo
 from txs.tmux import get_active_sessions, sanitize_session_name
+from txs.tui.panels.base import TxsTreePanel
 
 
 @dataclass
@@ -31,10 +32,11 @@ class ProjectNode:
     is_leaf: bool = False
 
 
-class ProjectsPanel(Tree):
+class ProjectsPanel(TxsTreePanel):
     """Tree widget showing all configured projects."""
 
     BORDER_TITLE = "Projects"
+    BINDING_GROUP_TITLE = "Projects"
 
     def __init__(self) -> None:
         super().__init__("Projects", id="projects-tree")
@@ -57,7 +59,9 @@ class ProjectsPanel(Tree):
         for proj in cfg.projects:
             self._add_project(proj.name, cfg, active_sessions)
 
-        self._restore_expanded(expanded)
+        self._apply_expansion_state(
+            expanded, default_expanded=setting_bool("tui_trees_expanded", default=True)
+        )
         # Auto-expand parents that have filter matches
         if self._filter:
             self._expand_matching_parents()

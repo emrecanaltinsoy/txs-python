@@ -138,6 +138,8 @@ fzf_height = 50%
 |------------------|---------|----------------------------------------------------------|
 | `auto_add_clone` | `true`  | Automatically add cloned bare repos to `projects.conf`   |
 | `fzf_height`     | `50%`   | Height of fzf picker (percentage or line count)          |
+| `tui_trees_expanded` | `true`  | Expand all tree branches when the TUI starts        |
+| `tui_theme`          | `textual-dark` | Textual theme for the TUI (command palette → Theme) |
 
 For additional fzf customization (colors, keybindings, layout, etc.), use the
 `FZF_DEFAULT_OPTS` environment variable. See `man fzf` for available options.
@@ -218,6 +220,9 @@ Running `txs` with no arguments opens a lazygit-style terminal UI.
 | `Esc`     | Clear filter                                        |
 | `r`       | Refresh all panels                                  |
 | `q`       | Quit                                                |
+| `?`       | Show / hide keys panel (right side, like palette → Keys) |
+| `Space`   | Expand/collapse focused branch                      |
+| `-` / `+` | Collapse or expand all branches in the focused panel |
 
 ### Launching agents
 

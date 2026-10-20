@@ -7,21 +7,22 @@ from pathlib import Path
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.css.query import NoMatches
 from textual.screen import ModalScreen
-from textual.widgets import Footer, Input, Label, ListView, ListItem
+from textual.widgets import Footer, HelpPanel, Input, Label, ListItem, ListView
 
 from txs.config import invalidate_config_cache, parse_config
 from txs.tmux import (
     get_active_sessions as _get_active_sessions,
     get_session_worktree_paths,
-    launch_agent,
     kill_agent,
+    launch_agent,
 )
 from txs.tui.panels.agents import AgentNode, AgentsPanel
 from txs.tui.panels.preview import PreviewPanel
 from txs.tui.panels.projects import ProjectNode, ProjectsPanel
 from txs.tui.panels.sessions import SessionsPanel
-
+from txs.tui.theme import apply_saved_theme, open_theme_palette, persist_theme
 
 # ---------------------------------------------------------------------------
 # Modal screens
@@ -244,10 +245,12 @@ class TxsApp(App):
     """lazygit-style tmux session manager."""
 
     CSS_PATH = Path(__file__).parent / "app.tcss"
+    BINDING_GROUP_TITLE = "General"
 
     BINDINGS = [
         Binding("q", "quit", "Quit"),
         Binding("r", "refresh", "Refresh"),
+        Binding("question_mark", "toggle_help_panel", "Keys"),
         Binding("h", "prev_panel", "◀ panel", show=False),
         Binding("l", "next_panel", "▶ panel", show=False),
         Binding("j", "cursor_down", "▼", show=False),
@@ -266,6 +269,7 @@ class TxsApp(App):
         self._cfg = None
         self._filter_active = False
         self._filter_panel_id: str = "sessions-tree"
+        apply_saved_theme(self)
 
     # ------------------------------------------------------------------
     # Helpers — always derived from self.focused, never stale
@@ -308,6 +312,7 @@ class TxsApp(App):
     # ------------------------------------------------------------------
 
     def on_mount(self) -> None:
+        self.theme_changed_signal.subscribe(self, persist_theme)
         self.query_one("#filter-bar").display = False
         self._load_config()
         self._refresh_all()
@@ -428,6 +433,19 @@ class TxsApp(App):
         self._update_preview()
         self.refresh_bindings()
 
+    def action_change_theme(self) -> None:
+        open_theme_palette(self)
+
+    def action_toggle_help_panel(self) -> None:
+        if len(self.screen_stack) > 1:
+            return
+        try:
+            self.screen.query_one(HelpPanel)
+        except NoMatches:
+            self.action_show_help_panel()
+        else:
+            self.action_hide_help_panel()
+
     # ------------------------------------------------------------------
     # Context-aware footer
     # ------------------------------------------------------------------
@@ -436,9 +454,11 @@ class TxsApp(App):
         pid = self._active_panel_id()
 
         if self._filter_active:
-            return action in ("clear_filter", "quit")
+            return action in ("clear_filter", "quit", "toggle_help_panel")
 
         match action:
+            case "toggle_help_panel":
+                return len(self.screen_stack) <= 1
             case "kill":
                 # kill_session only in sessions panel; kill_agent only in agents panel
                 return pid in ("sessions-tree", "agents-tree")

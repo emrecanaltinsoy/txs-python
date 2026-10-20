@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from textual.widgets import Tree
 from textual.widgets._tree import TreeNode
 
+from txs.config import setting_bool
 from txs.tmux import AgentInfo, get_agents
+from txs.tui.panels.base import TxsTreePanel
 
 
 @dataclass
@@ -26,10 +27,11 @@ class AgentNode:
         return self.command == "pi"
 
 
-class AgentsPanel(Tree):
+class AgentsPanel(TxsTreePanel):
     """Tree widget showing pi agents grouped by session."""
 
     BORDER_TITLE = "Agents"
+    BINDING_GROUP_TITLE = "Agents"
 
     def __init__(self) -> None:
         super().__init__("Agents", id="agents-tree")
@@ -56,7 +58,7 @@ class AgentsPanel(Tree):
             node = self.root.add(
                 session_label,
                 data=AgentNode(session=session),
-                expand=session in expanded or not expanded,
+                expand=False,
             )
             for agent in session_agents:
                 status = (
@@ -75,7 +77,9 @@ class AgentsPanel(Tree):
                     ),
                 )
 
-        self._restore_expanded(expanded)
+        self._apply_expansion_state(
+            expanded, default_expanded=setting_bool("tui_trees_expanded", default=True)
+        )
         self._restore_selection(selected_pane_id)
 
     def selected_node_data(self) -> AgentNode | None:

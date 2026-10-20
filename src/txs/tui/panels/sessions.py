@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from textual.widgets import Tree
 from textual.widgets._tree import TreeNode
 
 from txs.config import (
@@ -14,6 +13,7 @@ from txs.config import (
     find_depth_owner,
     find_project_for_session,
     get_project_prop,
+    setting_bool,
 )
 from txs.git import get_project_worktrees, is_bare_repo
 from txs.tmux import (
@@ -22,6 +22,7 @@ from txs.tmux import (
     get_active_sessions,
     get_session_windows,
 )
+from txs.tui.panels.base import TxsTreePanel
 
 
 @dataclass
@@ -33,10 +34,11 @@ class SessionNode:
     is_leaf: bool = False  # True for nodes you can attach to directly
 
 
-class SessionsPanel(Tree):
+class SessionsPanel(TxsTreePanel):
     """Tree widget showing active tmux sessions."""
 
     BORDER_TITLE = "Sessions"
+    BINDING_GROUP_TITLE = "Sessions"
 
     def __init__(self) -> None:
         super().__init__("Sessions", id="sessions-tree")
@@ -64,7 +66,9 @@ class SessionsPanel(Tree):
                     continue
             self._add_session(session, cfg)
 
-        self._restore_expanded(expanded)
+        self._apply_expansion_state(
+            expanded, default_expanded=setting_bool("tui_trees_expanded", default=True)
+        )
         self._restore_selection(selected_label)
 
     def set_filter(self, text: str) -> None:
@@ -105,7 +109,7 @@ class SessionsPanel(Tree):
                 node = self.root.add(
                     label,
                     data=SessionNode(session=session),
-                    expand=True,
+                    expand=False,
                 )
                 self._add_worktree_children(node, session, path)
                 return
@@ -117,7 +121,7 @@ class SessionsPanel(Tree):
                 node = self.root.add(
                     label,
                     data=SessionNode(session=session),
-                    expand=True,
+                    expand=False,
                 )
                 self._add_worktree_children(node, session, dp_path)
                 return

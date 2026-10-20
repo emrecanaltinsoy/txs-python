@@ -14,6 +14,7 @@ build_depth_index(cfg)          (populates cfg._depth_index in-place)
 find_depth_owner(cfg, dp_name)  -> tuple[str, str] | None
 expand_path(path)               -> str
 get_txs_setting(key)            -> str
+set_txs_setting(key, value)     (writes settings file)
 invalidate_config_cache()
 """
 
@@ -246,6 +247,25 @@ def find_depth_owner(cfg: ProjectConfig, dp_name: str) -> tuple[str, str] | None
 # ---------------------------------------------------------------------------
 
 
+def setting_is_true(key: str, settings_file: Path | None = None) -> bool:
+    """Return True if a settings key is explicitly set to true."""
+    return get_txs_setting(key, settings_file).lower() == "true"
+
+
+def setting_bool(
+    key: str, default: bool = False, settings_file: Path | None = None
+) -> bool:
+    """Parse a settings key as bool; return default when missing or unrecognized."""
+    val = get_txs_setting(key, settings_file).strip().lower()
+    if not val:
+        return default
+    if val == "true":
+        return True
+    if val == "false":
+        return False
+    return default
+
+
 def get_txs_setting(key: str, settings_file: Path | None = None) -> str:
     """Read a key from the simple key=value settings file."""
     sf = settings_file or SETTINGS_FILE
@@ -265,3 +285,29 @@ def get_txs_setting(key: str, settings_file: Path | None = None) -> str:
             if k == key:
                 return v
     return ""
+
+
+def set_txs_setting(key: str, value: str, settings_file: Path | None = None) -> None:
+    """Write or update a key in the simple key=value settings file."""
+    sf = settings_file or SETTINGS_FILE
+    sf.parent.mkdir(parents=True, exist_ok=True)
+
+    lines: list[str] = []
+    found = False
+    if sf.exists():
+        for raw in sf.read_text(encoding="utf-8").splitlines():
+            stripped = raw.strip()
+            if stripped and not stripped.startswith("#") and "=" in stripped:
+                k, _, _ = stripped.partition("=")
+                if k.strip() == key:
+                    lines.append(f"{key} = {value}")
+                    found = True
+                    continue
+            lines.append(raw)
+    if not found:
+        if lines and lines[-1].strip():
+            lines.append("")
+        lines.append(f"{key} = {value}")
+
+    text = "\n".join(lines).rstrip()
+    sf.write_text(f"{text}\n" if text else "", encoding="utf-8")

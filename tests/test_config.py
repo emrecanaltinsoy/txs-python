@@ -10,6 +10,9 @@ from txs.config import (
     find_project_for_session,
     get_project_prop,
     get_txs_setting,
+    set_txs_setting,
+    setting_bool,
+    setting_is_true,
     is_explicit_project_path,
     parse_config,
 )
@@ -218,6 +221,45 @@ class TestGetTxsSetting:
     def test_fzf_height_default(self, tmp_path):
         result = get_txs_setting("fzf_height", tmp_path / "nonexistent") or "50%"
         assert result == "50%"
+
+
+class TestSetTxsSetting:
+    def test_updates_existing_key(self, tmp_path):
+        sf = tmp_path / "config"
+        sf.write_text("auto_add_clone = true\ntui_theme = textual-dark\n")
+        set_txs_setting("tui_theme", "nord", sf)
+        assert get_txs_setting("tui_theme", sf) == "nord"
+        assert get_txs_setting("auto_add_clone", sf) == "true"
+
+    def test_appends_missing_key(self, tmp_path):
+        sf = tmp_path / "config"
+        sf.write_text("auto_add_clone = true\n")
+        set_txs_setting("tui_theme", "textual-dark", sf)
+        assert get_txs_setting("tui_theme", sf) == "textual-dark"
+
+
+class TestSettingIsTrue:
+    def test_true_when_explicit(self, tmp_path):
+        sf = tmp_path / "config"
+        sf.write_text("auto_add_clone = true\n")
+        assert setting_is_true("auto_add_clone", sf)
+
+    def test_false_when_not_true(self, tmp_path):
+        sf = tmp_path / "config"
+        sf.write_text("auto_add_clone = false\n")
+        assert not setting_is_true("auto_add_clone", sf)
+
+
+class TestSettingBool:
+    def test_default_when_missing(self, tmp_path):
+        sf = tmp_path / "config"
+        assert setting_bool("tui_trees_expanded", default=True, settings_file=sf)
+        assert not setting_bool("tui_trees_expanded", default=False, settings_file=sf)
+
+    def test_explicit_false(self, tmp_path):
+        sf = tmp_path / "config"
+        sf.write_text("tui_trees_expanded = false\n")
+        assert not setting_bool("tui_trees_expanded", default=True, settings_file=sf)
 
 
 # ---------------------------------------------------------------------------

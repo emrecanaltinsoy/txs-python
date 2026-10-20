@@ -8,6 +8,8 @@
 #                    to the project config (true/false, default: true)
 #   fzf_height     - Height of fzf picker (default: 50%)
 #                    Accepts any value fzf supports: percentage or line count
+#   tui_trees_expanded - Expand all TUI tree panels on startup (true/false, default: true)
+#   tui_theme          - Textual theme name (default: textual-dark); updated when you pick a theme in the TUI
 #
 # For additional fzf customization (colors, keybindings, layout, etc.)
 # use the FZF_DEFAULT_OPTS environment variable. See: man fzf
