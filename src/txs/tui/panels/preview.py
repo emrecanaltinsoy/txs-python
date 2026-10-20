@@ -32,7 +32,7 @@ class PreviewPanel(Widget):
         self.query_one("#preview-content", Static).update(message)
 
     def refresh_preview(self) -> None:
-        """Called by the auto-refresh timer."""
+        """Called when a live preview timer is wired; debounce in the app if added."""
         if self._session:
             self._refresh_content()
 

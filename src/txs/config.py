@@ -59,13 +59,13 @@ class ProjectConfig:
     # depth owner index: basename -> (project_name, abs_path)
     # None means not yet built.
     _depth_index: dict[str, tuple[str, str]] | None = field(default=None, repr=False)
+    _projects_by_name: dict[str, Project] = field(default_factory=dict, repr=False)
 
-    # fast lookup by name
     def _by_name(self, name: str) -> Project | None:
-        for p in self.projects:
-            if p.name == name:
-                return p
-        return None
+        return self._projects_by_name.get(name)
+
+    def _index_projects(self) -> None:
+        self._projects_by_name = {p.name: p for p in self.projects}
 
 
 # ---------------------------------------------------------------------------
@@ -73,11 +73,25 @@ class ProjectConfig:
 # ---------------------------------------------------------------------------
 
 _cache: ProjectConfig | None = None
+_config_mtime: float | None = None
 
 
 def invalidate_config_cache() -> None:
-    global _cache
+    global _cache, _config_mtime
     _cache = None
+    _config_mtime = None
+
+
+def reload_config_if_changed() -> None:
+    """Drop cached config only when projects.conf mtime changed."""
+    global _config_mtime
+    if not CONFIG_FILE.exists():
+        invalidate_config_cache()
+        return
+    mtime = CONFIG_FILE.stat().st_mtime
+    if _cache is not None and _config_mtime == mtime:
+        return
+    invalidate_config_cache()
 
 
 def parse_config(config_file: Path | None = None) -> ProjectConfig:
@@ -143,8 +157,12 @@ def parse_config(config_file: Path | None = None) -> ProjectConfig:
         )
         cfg.projects.append(proj)
 
+    cfg._index_projects()
+
     if config_file is None:
+        global _config_mtime
         _cache = cfg
+        _config_mtime = cf.stat().st_mtime
     return cfg
 
 
@@ -264,6 +282,20 @@ def setting_bool(
     if val == "false":
         return False
     return default
+
+
+@dataclass(frozen=True)
+class TuiSettingsView:
+    trees_expanded: bool
+
+
+def load_tui_settings(settings_file: Path | None = None) -> TuiSettingsView:
+    """Read TUI-related settings once (for a refresh cycle)."""
+    return TuiSettingsView(
+        trees_expanded=setting_bool(
+            "tui_trees_expanded", default=True, settings_file=settings_file
+        ),
+    )
 
 
 def get_txs_setting(key: str, settings_file: Path | None = None) -> str:

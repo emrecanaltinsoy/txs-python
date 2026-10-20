@@ -4,10 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from textual.widgets._tree import TreeNode
-
-from txs.config import setting_bool
-from txs.tmux import AgentInfo, get_agents
+from txs.config import TuiSettingsView
+from txs.tmux import AgentInfo, TmuxSnapshot
 from txs.tui.panels.base import TxsTreePanel
 
 
@@ -41,14 +39,17 @@ class AgentsPanel(TxsTreePanel):
     # Public API
     # ------------------------------------------------------------------
 
-    def refresh_data(self) -> None:
+    def refresh_data(self, snap: TmuxSnapshot, settings: TuiSettingsView) -> None:
         """Rebuild the tree from live tmux agent state."""
         selected_pane_id = self._selected_pane_id()
-        expanded = self._get_expanded_sessions()
+        expanded = self._collect_expanded_keys(
+            AgentNode,
+            lambda d: d.session if not d.is_leaf else None,
+        )
 
         self.clear()
 
-        agents = get_agents()
+        agents = snap.agents
         by_session: dict[str, list[AgentInfo]] = {}
         for a in agents:
             by_session.setdefault(a.session, []).append(a)
@@ -78,7 +79,7 @@ class AgentsPanel(TxsTreePanel):
                 )
 
         self._apply_expansion_state(
-            expanded, default_expanded=setting_bool("tui_trees_expanded", default=True)
+            expanded, default_expanded=settings.trees_expanded
         )
         self._restore_selection(selected_pane_id)
 
@@ -100,39 +101,12 @@ class AgentsPanel(TxsTreePanel):
             return self.cursor_node.data.pane_id
         return ""
 
-    def _get_expanded_sessions(self) -> set[str]:
-        expanded: set[str] = set()
-
-        def _walk(node: TreeNode) -> None:
-            if node.is_expanded and isinstance(node.data, AgentNode):
-                expanded.add(node.data.session)
-            for child in node.children:
-                _walk(child)
-
-        _walk(self.root)
-        return expanded
-
     def _restore_expanded(self, expanded: set[str]) -> None:
-        def _walk(node: TreeNode) -> None:
-            if isinstance(node.data, AgentNode) and node.data.session in expanded:
-                node.expand()
-            for child in node.children:
-                _walk(child)
-
-        _walk(self.root)
+        self._restore_expanded_keys(
+            expanded,
+            AgentNode,
+            lambda d: d.session if not d.is_leaf else None,
+        )
 
     def _restore_selection(self, pane_id: str) -> None:
-        if not pane_id:
-            return
-
-        def _walk(node: TreeNode) -> bool:
-            d = node.data
-            if isinstance(d, AgentNode) and d.pane_id == pane_id:
-                self.move_cursor(node)
-                return True
-            for child in node.children:
-                if _walk(child):
-                    return True
-            return False
-
-        _walk(self.root)
+        self._restore_cursor_by_key(pane_id, AgentNode, lambda d: d.pane_id or None)

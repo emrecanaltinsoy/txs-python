@@ -9,15 +9,15 @@ from textual.widgets._tree import TreeNode
 
 from txs.config import (
     ProjectConfig,
+    TuiSettingsView,
     build_depth_index,
     expand_path,
     find_depth_owner,
     get_project_prop,
     is_explicit_project_path,
-    setting_bool,
 )
 from txs.git import get_depth_projects, get_project_worktrees, is_bare_repo
-from txs.tmux import get_active_sessions, sanitize_session_name
+from txs.tmux import TmuxSnapshot, sanitize_session_name
 from txs.tui.panels.base import TxsTreePanel
 
 
@@ -47,20 +47,24 @@ class ProjectsPanel(TxsTreePanel):
     # Public API
     # ------------------------------------------------------------------
 
-    def refresh_data(self, cfg: ProjectConfig) -> None:
+    def refresh_data(
+        self, cfg: ProjectConfig, snap: TmuxSnapshot, settings: TuiSettingsView
+    ) -> None:
         """Rebuild the tree from config + live session state."""
         selected_label = self._selected_label()
-        expanded = self._get_expanded_keys()
+        expanded = self._collect_expanded_keys(
+            ProjectNode, lambda d: f"{d.project}|{d.path}"
+        )
 
         self.clear()
         build_depth_index(cfg)
-        active_sessions = set(get_active_sessions())
+        active_sessions = snap.active_sessions
 
         for proj in cfg.projects:
             self._add_project(proj.name, cfg, active_sessions)
 
         self._apply_expansion_state(
-            expanded, default_expanded=setting_bool("tui_trees_expanded", default=True)
+            expanded, default_expanded=settings.trees_expanded
         )
         # Auto-expand parents that have filter matches
         if self._filter:
@@ -69,14 +73,6 @@ class ProjectsPanel(TxsTreePanel):
 
     def set_filter(self, text: str) -> None:
         self._filter = text
-
-    @staticmethod
-    def _matches(query: str, text: str) -> bool:
-        """Subsequence match — fzf-style. 'xy' matches 'xyz'."""
-        if not query:
-            return True
-        it = iter(text.lower())
-        return all(c in it for c in query.lower())
 
     def selected_node_data(self) -> ProjectNode | None:
         if self.cursor_node is None:
@@ -110,7 +106,7 @@ class ProjectsPanel(TxsTreePanel):
             return
 
         # Regular project — leaf; skip if filter doesn’t match
-        if self._filter and not self._matches(self._filter, proj_name):
+        if self._filter and not self.subsequence_match(self._filter, proj_name):
             return
 
         active = session_name in active_sessions
@@ -144,8 +140,8 @@ class ProjectsPanel(TxsTreePanel):
         for wt, wt_name in sorted(get_project_worktrees(path), key=lambda x: x[1]):
             if (
                 self._filter
-                and not self._matches(self._filter, wt_name)
-                and not self._matches(self._filter, proj_name)
+                and not self.subsequence_match(self._filter, wt_name)
+                and not self.subsequence_match(self._filter, proj_name)
             ):
                 continue
             node.add_leaf(
@@ -184,8 +180,8 @@ class ProjectsPanel(TxsTreePanel):
                 continue
             if (
                 self._filter
-                and not self._matches(self._filter, dp_name)
-                and not self._matches(self._filter, proj_name)
+                and not self.subsequence_match(self._filter, dp_name)
+                and not self.subsequence_match(self._filter, proj_name)
             ):
                 continue
 
@@ -247,28 +243,10 @@ class ProjectsPanel(TxsTreePanel):
 
         _walk(self.root)
 
-    def _get_expanded_keys(self) -> set[str]:
-        expanded: set[str] = set()
-
-        def _walk(node: TreeNode) -> None:
-            if node.is_expanded and isinstance(node.data, ProjectNode):
-                expanded.add(node.data.project + "|" + node.data.path)
-            for child in node.children:
-                _walk(child)
-
-        _walk(self.root)
-        return expanded
-
     def _restore_expanded(self, expanded: set[str]) -> None:
-        def _walk(node: TreeNode) -> None:
-            if isinstance(node.data, ProjectNode):
-                key = node.data.project + "|" + node.data.path
-                if key in expanded:
-                    node.expand()
-            for child in node.children:
-                _walk(child)
-
-        _walk(self.root)
+        self._restore_expanded_keys(
+            expanded, ProjectNode, lambda d: f"{d.project}|{d.path}"
+        )
 
     def _selected_label(self) -> str:
         if self.cursor_node and self.cursor_node.data:
@@ -278,18 +256,8 @@ class ProjectsPanel(TxsTreePanel):
         return ""
 
     def _restore_selection(self, label: str) -> None:
-        if not label:
-            return
-
-        def _walk(node: TreeNode) -> bool:
-            d = node.data
-            if isinstance(d, ProjectNode):
-                if (d.wt_path or d.session_name or d.project) == label:
-                    self.move_cursor(node)
-                    return True
-            for child in node.children:
-                if _walk(child):
-                    return True
-            return False
-
-        _walk(self.root)
+        self._restore_cursor_by_key(
+            label,
+            ProjectNode,
+            lambda d: d.wt_path or d.session_name or d.project,
+        )

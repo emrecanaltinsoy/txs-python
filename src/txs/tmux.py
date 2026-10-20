@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -168,6 +168,102 @@ class AgentInfo:
 
 
 AGENTS_WINDOW = "agents"
+
+
+@dataclass
+class TmuxSnapshot:
+    """One round of tmux queries for TUI panel refresh."""
+
+    sessions: tuple[str, ...]
+    windows_by_session: dict[str, list[str]]
+    agents: list[AgentInfo]
+    pane_locations: dict[str, list[tuple[str, str]]] = field(default_factory=dict)
+    # session -> [(window_index, pane_current_path), ...]
+
+    @classmethod
+    def fetch(cls) -> TmuxSnapshot:
+        sessions = tuple(get_active_sessions())
+
+        windows_by_session: dict[str, list[str]] = {}
+        win_result = subprocess.run(
+            ["tmux", "list-windows", "-a", "-F", "#{session_name}:#{window_name}"],
+            capture_output=True,
+            text=True,
+        )
+        if win_result.returncode == 0:
+            for line in win_result.stdout.splitlines():
+                if not line:
+                    continue
+                session, _, window = line.partition(":")
+                if session and window:
+                    windows_by_session.setdefault(session, []).append(window)
+
+        agents: list[AgentInfo] = []
+        pane_locations: dict[str, list[tuple[str, str]]] = {}
+        pane_result = subprocess.run(
+            [
+                "tmux",
+                "list-panes",
+                "-a",
+                "-F",
+                "#{session_name}|#{window_name}|#{window_index}|#{pane_current_path}|#{pane_id}|#{pane_index}|#{@txs_label}|#{pane_current_command}",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if pane_result.returncode == 0:
+            for line in pane_result.stdout.splitlines():
+                if not line:
+                    continue
+                parts = line.split("|", 7)
+                if len(parts) != 8:
+                    continue
+                (
+                    session,
+                    window,
+                    win_index,
+                    pane_path,
+                    pane_id,
+                    pane_index,
+                    label,
+                    command,
+                ) = parts
+                pane_locations.setdefault(session, []).append((win_index, pane_path))
+                if window == AGENTS_WINDOW:
+                    agents.append(
+                        AgentInfo(
+                            session=session,
+                            pane_id=pane_id,
+                            pane_index=pane_index,
+                            title=label or command,
+                            command=command,
+                        )
+                    )
+
+        global _window_cache
+        _window_cache = {k: list(v) for k, v in windows_by_session.items()}
+
+        return cls(
+            sessions=sessions,
+            windows_by_session=windows_by_session,
+            agents=agents,
+            pane_locations=pane_locations,
+        )
+
+    @property
+    def active_sessions(self) -> set[str]:
+        return set(self.sessions)
+
+    def windows_label(self, session: str) -> str:
+        return ", ".join(self.windows_by_session.get(session, []))
+
+    def window_for_path(self, session: str, worktree_path: str) -> str | None:
+        """Return window index if any pane in session is at worktree_path."""
+        prefix = worktree_path + "/"
+        for win_index, pane_path in self.pane_locations.get(session, []):
+            if pane_path == worktree_path or pane_path.startswith(prefix):
+                return win_index
+        return None
 
 
 def get_agents() -> list[AgentInfo]:

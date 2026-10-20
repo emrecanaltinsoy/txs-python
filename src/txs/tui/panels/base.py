@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
-from typing import ClassVar
+from collections.abc import Callable
+from typing import ClassVar, TypeVar
 
 from textual.binding import Binding, BindingType
 from textual.widgets import Tree
+from textual.widgets._tree import TreeNode
+
+NodeDataT = TypeVar("NodeDataT")
 
 # Textual's shift+space toggle is sibling-only and unreliable in some terminals.
 _TREE_BINDINGS = [
@@ -48,3 +52,68 @@ class TxsTreePanel(Tree):
             self._restore_expanded(expanded)
         elif default_expanded:
             self.expand_all_branches()
+
+    @staticmethod
+    def subsequence_match(query: str, text: str) -> bool:
+        """Subsequence match — fzf-style. 'xy' matches 'xyz'."""
+        if not query:
+            return True
+        it = iter(text.lower())
+        return all(c in it for c in query.lower())
+
+    def _collect_expanded_keys(
+        self,
+        node_type: type[NodeDataT],
+        key_of: Callable[[NodeDataT], str | None],
+    ) -> set[str]:
+        expanded: set[str] = set()
+
+        def _walk(node: TreeNode) -> None:
+            data = node.data
+            if node.is_expanded and isinstance(data, node_type):
+                key = key_of(data)
+                if key:
+                    expanded.add(key)
+            for child in node.children:
+                _walk(child)
+
+        _walk(self.root)
+        return expanded
+
+    def _restore_expanded_keys(
+        self,
+        expanded: set[str],
+        node_type: type[NodeDataT],
+        key_of: Callable[[NodeDataT], str | None],
+    ) -> None:
+        def _walk(node: TreeNode) -> None:
+            data = node.data
+            if isinstance(data, node_type):
+                key = key_of(data)
+                if key and key in expanded:
+                    node.expand()
+            for child in node.children:
+                _walk(child)
+
+        _walk(self.root)
+
+    def _restore_cursor_by_key(
+        self,
+        key: str,
+        node_type: type[NodeDataT],
+        key_of: Callable[[NodeDataT], str | None],
+    ) -> None:
+        if not key:
+            return
+
+        def _walk(node: TreeNode) -> bool:
+            data = node.data
+            if isinstance(data, node_type) and key_of(data) == key:
+                self.move_cursor(node)
+                return True
+            for child in node.children:
+                if _walk(child):
+                    return True
+            return False
+
+        _walk(self.root)

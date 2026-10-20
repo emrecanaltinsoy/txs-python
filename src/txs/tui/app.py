@@ -11,13 +11,14 @@ from textual.css.query import NoMatches
 from textual.screen import ModalScreen
 from textual.widgets import Footer, HelpPanel, Input, Label, ListItem, ListView
 
-from txs.config import invalidate_config_cache, parse_config
+from txs.config import parse_config
 from txs.tmux import (
     get_active_sessions as _get_active_sessions,
     get_session_worktree_paths,
     kill_agent,
     launch_agent,
 )
+from txs.tui.sync import TuiRefreshBundle, fetch_refresh_bundle, maybe_reload_config
 from txs.tui.panels.agents import AgentNode, AgentsPanel
 from txs.tui.panels.preview import PreviewPanel
 from txs.tui.panels.projects import ProjectNode, ProjectsPanel
@@ -263,12 +264,15 @@ class TxsApp(App):
     ]
 
     _PANELS = ["sessions-tree", "projects-tree", "agents-tree"]
+    _FILTER_DEBOUNCE_SEC = 0.2
 
     def __init__(self) -> None:
         super().__init__()
         self._cfg = None
+        self._tmux = None
         self._filter_active = False
         self._filter_panel_id: str = "sessions-tree"
+        self._filter_refresh_timer = None
         apply_saved_theme(self)
 
     # ------------------------------------------------------------------
@@ -341,15 +345,29 @@ class TxsApp(App):
         except SystemExit:
             self._cfg = None
 
-    def _refresh_all(self) -> None:
-        invalidate_config_cache()
-        self._load_config()
+    def _apply_refresh_bundle(self, bundle: TuiRefreshBundle) -> None:
         if self._cfg is None:
             return
-        self.query_one(SessionsPanel).refresh_data(self._cfg)
-        self.query_one(ProjectsPanel).refresh_data(self._cfg)
-        self.query_one(AgentsPanel).refresh_data()
+        self._tmux = bundle.snap
+        self.query_one(SessionsPanel).refresh_data(
+            self._cfg, bundle.snap, bundle.settings
+        )
+        self.query_one(ProjectsPanel).refresh_data(
+            self._cfg, bundle.snap, bundle.settings
+        )
+        self.query_one(AgentsPanel).refresh_data(bundle.snap, bundle.settings)
         self._update_preview()
+
+    def _sync_panels(self, *, reload_config: bool = False) -> None:
+        if reload_config or self._cfg is None:
+            maybe_reload_config()
+            self._load_config()
+        if self._cfg is None:
+            return
+        self._apply_refresh_bundle(fetch_refresh_bundle())
+
+    def _refresh_all(self) -> None:
+        self._sync_panels(reload_config=True)
 
     # ------------------------------------------------------------------
     # Preview
@@ -370,7 +388,11 @@ class TxsApp(App):
         elif panel_id == "projects-tree":
             data = self.query_one(ProjectsPanel).selected_node_data()
             if isinstance(data, ProjectNode) and data.session_name:
-                active = set(_get_active_sessions())
+                active = (
+                    self._tmux.active_sessions
+                    if self._tmux is not None
+                    else set(_get_active_sessions())
+                )
                 if data.session_name in active:
                     preview.show_session(data.session_name)
                 else:
@@ -524,7 +546,12 @@ class TxsApp(App):
             data = self.query_one(AgentsPanel).selected_node_data()
             if data and data.is_leaf and data.pane_id:
                 kill_agent(data.pane_id, data.session)
-                self.query_one(AgentsPanel).refresh_data()
+                if self._cfg is not None:
+                    bundle = fetch_refresh_bundle()
+                    self.query_one(AgentsPanel).refresh_data(
+                        bundle.snap, bundle.settings
+                    )
+                    self._tmux = bundle.snap
 
     # ------------------------------------------------------------------
     # Actions — agents
@@ -650,7 +677,7 @@ class TxsApp(App):
         panel = self._get_active_tree()
         if panel and self._cfg and isinstance(panel, (SessionsPanel, ProjectsPanel)):
             panel.set_filter("")
-            panel.refresh_data(self._cfg)
+            self._sync_panels(reload_config=False)
             panel.border_title = panel.BORDER_TITLE
         self.query_one(f"#{self._filter_panel_id}").focus()
         self.refresh_bindings()
@@ -676,7 +703,35 @@ class TxsApp(App):
         panel = self.query_one(f"#{self._filter_panel_id}")
         if panel and self._cfg:
             panel.set_filter(event.value)
-            panel.refresh_data(self._cfg)
+            self._schedule_filter_refresh()
+
+    def _schedule_filter_refresh(self) -> None:
+        if self._filter_refresh_timer is not None:
+            self._filter_refresh_timer.stop()
+        self._filter_refresh_timer = self.set_timer(
+            self._FILTER_DEBOUNCE_SEC,
+            self._apply_filter_refresh,
+            name="filter_refresh",
+        )
+
+    def _apply_filter_refresh(self) -> None:
+        if not self._filter_active or self._cfg is None:
+            return
+        bundle = fetch_refresh_bundle()
+        self._tmux = bundle.snap
+        panel_id = self._filter_panel_id
+        if panel_id == "sessions-tree":
+            self.query_one(SessionsPanel).refresh_data(
+                self._cfg, bundle.snap, bundle.settings
+            )
+        elif panel_id == "projects-tree":
+            self.query_one(ProjectsPanel).refresh_data(
+                self._cfg, bundle.snap, bundle.settings
+            )
 
     def on_input_submitted(self, _event: Input.Submitted) -> None:
+        if self._filter_refresh_timer is not None:
+            self._filter_refresh_timer.stop()
+            self._filter_refresh_timer = None
+        self._apply_filter_refresh()
         self._dismiss_filter_bar()

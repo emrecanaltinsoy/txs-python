@@ -10,11 +10,13 @@ from txs.config import (
     find_project_for_session,
     get_project_prop,
     get_txs_setting,
+    invalidate_config_cache,
+    is_explicit_project_path,
+    parse_config,
+    reload_config_if_changed,
     set_txs_setting,
     setting_bool,
     setting_is_true,
-    is_explicit_project_path,
-    parse_config,
 )
 
 # ---------------------------------------------------------------------------
@@ -221,6 +223,35 @@ class TestGetTxsSetting:
     def test_fzf_height_default(self, tmp_path):
         result = get_txs_setting("fzf_height", tmp_path / "nonexistent") or "50%"
         assert result == "50%"
+
+
+class TestReloadConfigIfChanged:
+    def test_skips_reparse_when_mtime_unchanged(self, tmp_path, monkeypatch):
+        from txs import config as config_mod
+
+        conf = tmp_path / "projects.conf"
+        conf.write_text("[p]\npath = /tmp\n")
+        monkeypatch.setattr(config_mod, "CONFIG_FILE", conf)
+        invalidate_config_cache()
+        first = parse_config()
+        first_mtime = conf.stat().st_mtime
+        reload_config_if_changed()
+        second = parse_config()
+        assert first is second
+        assert config_mod._config_mtime == first_mtime
+
+    def test_invalidates_when_file_touched(self, tmp_path, monkeypatch):
+        from txs import config as config_mod
+
+        conf = tmp_path / "projects.conf"
+        conf.write_text("[p]\npath = /tmp\n")
+        monkeypatch.setattr(config_mod, "CONFIG_FILE", conf)
+        invalidate_config_cache()
+        parse_config()
+        conf.write_text("[p]\npath = /tmp/other\n")
+        reload_config_if_changed()
+        cfg = parse_config()
+        assert cfg._by_name("p").path == "/tmp/other"
 
 
 class TestSetTxsSetting:

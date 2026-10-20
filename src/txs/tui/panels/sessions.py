@@ -8,20 +8,15 @@ from textual.widgets._tree import TreeNode
 
 from txs.config import (
     ProjectConfig,
+    TuiSettingsView,
     build_depth_index,
     expand_path,
     find_depth_owner,
     find_project_for_session,
     get_project_prop,
-    setting_bool,
 )
 from txs.git import get_project_worktrees, is_bare_repo
-from txs.tmux import (
-    fetch_session_windows,
-    find_window_by_path,
-    get_active_sessions,
-    get_session_windows,
-)
+from txs.tmux import TmuxSnapshot
 from txs.tui.panels.base import TxsTreePanel
 
 
@@ -49,38 +44,33 @@ class SessionsPanel(TxsTreePanel):
     # Public API
     # ------------------------------------------------------------------
 
-    def refresh_data(self, cfg: ProjectConfig) -> None:
+    def refresh_data(
+        self, cfg: ProjectConfig, snap: TmuxSnapshot, settings: TuiSettingsView
+    ) -> None:
         """Rebuild the tree from live tmux state."""
         selected_label = self._selected_label()
-        expanded = self._get_expanded_keys()
+        expanded = self._collect_expanded_keys(SessionNode, lambda d: d.session)
 
         self.clear()
         build_depth_index(cfg)
-        fetch_session_windows()
 
-        sessions = get_active_sessions()
-        for session in sessions:
-            if self._filter and not self._matches(self._filter, session):
+        for session in snap.sessions:
+            if self._filter and not self.subsequence_match(self._filter, session):
                 # Still add if a worktree child matches
                 if not self._session_has_match(session, cfg):
                     continue
-            self._add_session(session, cfg)
+            self._add_session(session, cfg, snap)
 
         self._apply_expansion_state(
-            expanded, default_expanded=setting_bool("tui_trees_expanded", default=True)
+            expanded, default_expanded=settings.trees_expanded
         )
         self._restore_selection(selected_label)
 
     def set_filter(self, text: str) -> None:
         self._filter = text
 
-    @staticmethod
-    def _matches(query: str, text: str) -> bool:
-        """Subsequence match — fzf-style."""
-        if not query:
-            return True
-        it = iter(text.lower())
-        return all(c in it for c in query.lower())
+    def _restore_expanded(self, expanded: set[str]) -> None:
+        self._restore_expanded_keys(expanded, SessionNode, lambda d: d.session)
 
     def selected_node_data(self) -> SessionNode | None:
         if self.cursor_node is None:
@@ -95,11 +85,11 @@ class SessionsPanel(TxsTreePanel):
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _add_session(self, session: str, cfg: ProjectConfig) -> None:
+    def _add_session(self, session: str, cfg: ProjectConfig, snap: TmuxSnapshot) -> None:
         proj = find_project_for_session(cfg, session)
         depth_info = find_depth_owner(cfg, session)
 
-        windows = get_session_windows(session)
+        windows = snap.windows_label(session)
         label = f"[bold green]* {session}[/bold green]  [dim][{windows}][/dim]"
 
         # Bare repo session → expandable with worktree children
@@ -111,7 +101,7 @@ class SessionsPanel(TxsTreePanel):
                     data=SessionNode(session=session),
                     expand=False,
                 )
-                self._add_worktree_children(node, session, path)
+                self._add_worktree_children(node, session, path, snap)
                 return
 
         # Depth-discovered bare repo session
@@ -123,7 +113,7 @@ class SessionsPanel(TxsTreePanel):
                     data=SessionNode(session=session),
                     expand=False,
                 )
-                self._add_worktree_children(node, session, dp_path)
+                self._add_worktree_children(node, session, dp_path, snap)
                 return
 
         # Regular session — leaf node
@@ -141,19 +131,21 @@ class SessionsPanel(TxsTreePanel):
         if not is_bare_repo(path):
             return False
         return any(
-            self._matches(self._filter, wt_name)
+            self.subsequence_match(self._filter, wt_name)
             for _, wt_name in get_project_worktrees(path)
         )
 
-    def _add_worktree_children(self, node: TreeNode, session: str, path: str) -> None:
+    def _add_worktree_children(
+        self, node: TreeNode, session: str, path: str, snap: TmuxSnapshot
+    ) -> None:
         for wt, wt_name in sorted(get_project_worktrees(path), key=lambda x: x[1]):
             if (
                 self._filter
-                and not self._matches(self._filter, wt_name)
-                and not self._matches(self._filter, session)
+                and not self.subsequence_match(self._filter, wt_name)
+                and not self.subsequence_match(self._filter, session)
             ):
                 continue
-            matched = find_window_by_path(session, wt)
+            matched = snap.window_for_path(session, wt)
             if matched:
                 label = f"[green]  {wt_name}[/green]"
             else:
@@ -163,27 +155,6 @@ class SessionsPanel(TxsTreePanel):
                 data=SessionNode(session=session, wt_path=wt, is_leaf=True),
             )
 
-    def _get_expanded_keys(self) -> set[str]:
-        expanded: set[str] = set()
-
-        def _walk(node: TreeNode) -> None:
-            if node.is_expanded and isinstance(node.data, SessionNode):
-                expanded.add(node.data.session)
-            for child in node.children:
-                _walk(child)
-
-        _walk(self.root)
-        return expanded
-
-    def _restore_expanded(self, expanded: set[str]) -> None:
-        def _walk(node: TreeNode) -> None:
-            if isinstance(node.data, SessionNode) and node.data.session in expanded:
-                node.expand()
-            for child in node.children:
-                _walk(child)
-
-        _walk(self.root)
-
     def _selected_label(self) -> str:
         if self.cursor_node and self.cursor_node.data:
             d = self.cursor_node.data
@@ -192,19 +163,6 @@ class SessionsPanel(TxsTreePanel):
         return ""
 
     def _restore_selection(self, label: str) -> None:
-        if not label:
-            return
-
-        # Walk tree nodes to find a match
-        def _walk(node: TreeNode) -> bool:
-            d = node.data
-            if isinstance(d, SessionNode):
-                if (d.wt_path or d.session) == label:
-                    self.move_cursor(node)
-                    return True
-            for child in node.children:
-                if _walk(child):
-                    return True
-            return False
-
-        _walk(self.root)
+        self._restore_cursor_by_key(
+            label, SessionNode, lambda d: d.wt_path or d.session
+        )

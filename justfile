@@ -3,3 +3,6 @@ test:
 
 check:
   prek run
+
+reinstall:
+  uv tool install --reinstall .

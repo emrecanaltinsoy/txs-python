@@ -11,6 +11,25 @@ import os
 import subprocess
 from pathlib import Path
 
+_bare_repo_cache: dict[str, bool] = {}
+_worktree_list_cache: dict[str, list[tuple[str, str]]] = {}
+_git_dir_cache: dict[str, str | None] = {}
+
+
+def clear_repo_caches() -> None:
+    """Clear caches used during a TUI refresh cycle."""
+    _bare_repo_cache.clear()
+    _worktree_list_cache.clear()
+    _git_dir_cache.clear()
+
+
+def _cache_key(path: str) -> str:
+    try:
+        return str(Path(path).resolve())
+    except OSError:
+        return path
+
+
 # ---------------------------------------------------------------------------
 # Bare-repo detection
 # ---------------------------------------------------------------------------
@@ -18,17 +37,25 @@ from pathlib import Path
 
 def is_bare_repo(path: str) -> bool:
     """True if path is a bare-repo in our clone-bare layout, or a standard bare repo."""
+    key = _cache_key(path)
+    if key in _bare_repo_cache:
+        return _bare_repo_cache[key]
+
     p = Path(path)
     # Our layout: .bare/ sub-directory
     if (p / ".bare").is_dir():
+        _bare_repo_cache[key] = True
         return True
     # Standard bare repo check
     result = subprocess.run(
         ["git", "-C", path, "rev-parse", "--is-bare-repository"],
         capture_output=True,
         text=True,
+        check=False,
     )
-    return result.stdout.strip() == "true"
+    is_bare = result.stdout.strip() == "true"
+    _bare_repo_cache[key] = is_bare
+    return is_bare
 
 
 # ---------------------------------------------------------------------------
@@ -65,7 +92,35 @@ def _list_worktree_paths(path: str) -> list[str]:
 
 def get_project_worktrees(path: str) -> list[tuple[str, str]]:
     """Return list of (worktree_path, basename) for a repo."""
-    return [(wt, os.path.basename(wt)) for wt in _list_worktree_paths(path)]
+    key = _cache_key(path)
+    if key in _worktree_list_cache:
+        return _worktree_list_cache[key]
+    rows = [(wt, os.path.basename(wt)) for wt in _list_worktree_paths(path)]
+    _worktree_list_cache[key] = rows
+    return rows
+
+
+def _git_dir_for_path(pane_path: str) -> str | None:
+    """Return absolute git dir for pane_path, or None if not a git checkout."""
+    key = _cache_key(pane_path)
+    if key in _git_dir_cache:
+        return _git_dir_cache[key]
+
+    git_check = subprocess.run(
+        ["git", "-C", pane_path, "rev-parse", "--git-dir"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if git_check.returncode != 0:
+        _git_dir_cache[key] = None
+        return None
+
+    git_dir = git_check.stdout.strip()
+    if not os.path.isabs(git_dir):
+        git_dir = str(Path(pane_path) / git_dir)
+    _git_dir_cache[key] = git_dir
+    return git_dir
 
 
 # ---------------------------------------------------------------------------
@@ -175,6 +230,8 @@ def get_active_worktrees() -> list[tuple[str, str, str]]:
     seen: set[str] = set()
     entries: list[tuple[str, str, str]] = []
 
+    repo_name_by_git_dir: dict[str, str] = {}
+
     for line in result.stdout.splitlines():
         if not line:
             continue
@@ -182,35 +239,31 @@ def get_active_worktrees() -> list[tuple[str, str, str]]:
         if not session or not pane_path:
             continue
 
-        git_check = subprocess.run(
-            ["git", "-C", pane_path, "rev-parse", "--git-dir"],
-            capture_output=True,
-            text=True,
-        )
-        if git_check.returncode != 0:
+        git_dir = _git_dir_for_path(pane_path)
+        if git_dir is None:
             continue
 
-        git_dir = git_check.stdout.strip()
-        if not os.path.isabs(git_dir):
-            git_dir = str(Path(pane_path) / git_dir)
+        if git_dir not in repo_name_by_git_dir:
+            origin = subprocess.run(
+                ["git", "-C", pane_path, "config", "--get", "remote.origin.url"],
+                capture_output=True,
+                text=True,
+                check=False,
+            ).stdout.strip()
 
-        # Derive repo name
-        origin = subprocess.run(
-            ["git", "-C", pane_path, "config", "--get", "remote.origin.url"],
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-
-        if origin:
-            repo_name = repo_name_from_url(origin)
-        else:
-            base = os.path.basename(git_dir)
-            if base in (".bare", ".git"):
-                repo_name = os.path.basename(os.path.dirname(git_dir))
+            if origin:
+                repo_name_by_git_dir[git_dir] = repo_name_from_url(origin)
             else:
-                repo_name = base
+                base = os.path.basename(git_dir)
+                if base in (".bare", ".git"):
+                    repo_name_by_git_dir[git_dir] = os.path.basename(
+                        os.path.dirname(git_dir)
+                    )
+                else:
+                    repo_name_by_git_dir[git_dir] = base
 
-        for wt in _list_worktree_paths(pane_path):
+        repo_name = repo_name_by_git_dir[git_dir]
+        for wt, _wt_name in get_project_worktrees(pane_path):
             if wt in seen:
                 continue
             seen.add(wt)
