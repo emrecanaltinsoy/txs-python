@@ -23,6 +23,22 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
 
+      - name: Verify package version matches tag
+        run: |
+          TAG="${{ github.ref_name }}"
+          EXPECTED="${TAG#v}"
+          ACTUAL=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          INIT=$(grep '^TXS_VERSION' src/txs/__init__.py | sed -E 's/.*"([^"]+)".*/\1/')
+          if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+            echo "::error::Tag ${TAG} expects version ${EXPECTED}, but pyproject.toml has ${ACTUAL}."
+            echo "Bump pyproject.toml and src/txs/__init__.py before tagging."
+            exit 1
+          fi
+          if [[ "$INIT" != "$EXPECTED" ]]; then
+            echo "::error::TXS_VERSION (${INIT}) does not match tag (${EXPECTED})."
+            exit 1
+          fi
+
       - name: Build package
         run: uv build
 
@@ -88,8 +104,15 @@ jobs:
           TAG="${{ github.ref_name }}"
           VERSION="${TAG#v}"
 
+          shopt -s nullglob
+          assets=(dist/txs-"${VERSION}"-*.whl dist/txs-"${VERSION}".tar.gz)
+          if (( ${#assets[@]} == 0 )); then
+            echo "::error::No dist artifacts for txs ${VERSION}"
+            ls -la dist/ 2>/dev/null || echo "(dist/ missing)"
+            exit 1
+          fi
+
           gh release create "$TAG" \
             --title "txs ${TAG}" \
             --notes-file release-notes.md \
-            dist/txs-${VERSION}-*.whl \
-            dist/txs-${VERSION}.tar.gz
+            "${assets[@]}"
