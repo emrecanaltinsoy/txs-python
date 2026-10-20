@@ -61,9 +61,7 @@ class SessionsPanel(TxsTreePanel):
                     continue
             self._add_session(session, cfg, snap)
 
-        self._apply_expansion_state(
-            expanded, default_expanded=settings.trees_expanded
-        )
+        self._apply_expansion_state(expanded, default_expanded=settings.trees_expanded)
         self._restore_selection(selected_label)
 
     def set_filter(self, text: str) -> None:
@@ -85,7 +83,9 @@ class SessionsPanel(TxsTreePanel):
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _add_session(self, session: str, cfg: ProjectConfig, snap: TmuxSnapshot) -> None:
+    def _add_session(
+        self, session: str, cfg: ProjectConfig, snap: TmuxSnapshot
+    ) -> None:
         proj = find_project_for_session(cfg, session)
         depth_info = find_depth_owner(cfg, session)
 

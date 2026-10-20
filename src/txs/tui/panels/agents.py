@@ -78,9 +78,7 @@ class AgentsPanel(TxsTreePanel):
                     ),
                 )
 
-        self._apply_expansion_state(
-            expanded, default_expanded=settings.trees_expanded
-        )
+        self._apply_expansion_state(expanded, default_expanded=settings.trees_expanded)
         self._restore_selection(selected_pane_id)
 
     def selected_node_data(self) -> AgentNode | None:

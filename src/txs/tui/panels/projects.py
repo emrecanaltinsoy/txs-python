@@ -63,9 +63,7 @@ class ProjectsPanel(TxsTreePanel):
         for proj in cfg.projects:
             self._add_project(proj.name, cfg, active_sessions)
 
-        self._apply_expansion_state(
-            expanded, default_expanded=settings.trees_expanded
-        )
+        self._apply_expansion_state(expanded, default_expanded=settings.trees_expanded)
         # Auto-expand parents that have filter matches
         if self._filter:
             self._expand_matching_parents()
