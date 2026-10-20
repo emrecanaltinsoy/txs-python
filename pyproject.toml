@@ -4,17 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "txs"
-version = "0.1.0"
+version = "0.2.0"
 description = "Manage tmux sessions from predefined project directories"
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
 
-dependencies = [
-    "typer>=0.12",
-    "rich>=13",
-    "textual>=8.2.8",
-]
+dependencies = ["typer>=0.12", "rich>=13", "textual>=8.2.8"]
 
 [project.urls]
 Homepage = "https://github.com/emrecanaltinsoy/txs-python"
@@ -35,7 +31,4 @@ testpaths = ["tests"]
 src = ["src"]
 
 [dependency-groups]
-dev = [
-    "pytest>=9.1.1",
-    "ruff>=0.17.1",
-]
+dev = ["pytest>=9.1.1", "ruff>=0.17.1"]
