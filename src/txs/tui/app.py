@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.css.query import NoMatches
 from textual.screen import ModalScreen
 from textual.widgets import Footer, HelpPanel, Input, Label, ListItem, ListView
+from textual.worker import Worker, WorkerState
 
 from txs.config import parse_config
 from txs.tmux import (
@@ -247,6 +249,8 @@ class TxsApp(App):
 
     CSS_PATH = Path(__file__).parent / "app.tcss"
     BINDING_GROUP_TITLE = "General"
+    _LAZY_STARTUP_WORKER = "lazy_startup_fetch"
+    _LOADING_SUFFIX = "  …"
 
     BINDINGS = [
         Binding("q", "quit", "Quit"),
@@ -273,6 +277,7 @@ class TxsApp(App):
         self._filter_active = False
         self._filter_panel_id: str = "sessions-tree"
         self._filter_refresh_timer = None
+        self._lazy_startup_bundle: TuiRefreshBundle | None = None
         apply_saved_theme(self)
 
     # ------------------------------------------------------------------
@@ -318,11 +323,72 @@ class TxsApp(App):
     def on_mount(self) -> None:
         self.theme_changed_signal.subscribe(self, persist_theme)
         self.query_one("#filter-bar").display = False
+        maybe_reload_config()
         self._load_config()
-        self._refresh_all()
+        self.query_one(SessionsPanel).focus()
+        if self._cfg is None:
+            self.query_one(PreviewPanel).clear_preview(
+                "Config not found — check ~/.config/txs/projects.conf"
+            )
+            return
+        self._set_tree_panels_loading(True)
+        self.query_one(PreviewPanel).clear_preview("")
+        self.call_after_refresh(self._begin_lazy_startup)
+
+    def _begin_lazy_startup(self) -> None:
+        self.run_worker(
+            fetch_refresh_bundle,
+            name=self._LAZY_STARTUP_WORKER,
+            thread=True,
+            exclusive=True,
+            group="startup",
+        )
+
+    @on(Worker.StateChanged)
+    def _on_lazy_startup_worker(self, event: Worker.StateChanged) -> None:
+        if event.worker.name != self._LAZY_STARTUP_WORKER:
+            return
+        if event.state == WorkerState.ERROR:
+            self._set_tree_panels_loading(False)
+            self.query_one(PreviewPanel).clear_preview(
+                "Failed to load tmux state (is tmux running?)"
+            )
+            return
+        if event.state != WorkerState.SUCCESS:
+            return
+        self._lazy_startup_bundle = event.worker.result
+        self._tmux = self._lazy_startup_bundle.snap
+        self.call_later(self._lazy_startup_sessions)
+
+    def _lazy_startup_sessions(self) -> None:
+        bundle = self._lazy_startup_bundle
+        if bundle is None or self._cfg is None:
+            return
+        self._restore_panel_title(SessionsPanel)
+        self._refresh_sessions_panel(bundle)
+        children = list(self.query_one(SessionsPanel).root.children)
+        if children:
+            self.query_one(SessionsPanel).move_cursor(children[0])
+        self._update_preview("sessions-tree")
+        self.call_later(self._lazy_startup_agents)
+
+    def _lazy_startup_agents(self) -> None:
+        bundle = self._lazy_startup_bundle
+        if bundle is None:
+            return
+        self._restore_panel_title(AgentsPanel)
+        self._refresh_agents_panel(bundle)
+        self.call_later(self._lazy_startup_projects)
+
+    def _lazy_startup_projects(self) -> None:
+        bundle = self._lazy_startup_bundle
+        if bundle is None or self._cfg is None:
+            return
+        self._restore_panel_title(ProjectsPanel)
+        self._refresh_projects_panel(bundle)
         self._select_first_items()
         self.query_one(SessionsPanel).focus()
-        self._update_preview()
+        self._lazy_startup_bundle = None
 
     def _select_first_items(self) -> None:
         """On startup only: move cursor to first item in each panel."""
@@ -345,17 +411,43 @@ class TxsApp(App):
         except SystemExit:
             self._cfg = None
 
+    def _set_tree_panels_loading(self, loading: bool) -> None:
+        for panel_type in (SessionsPanel, ProjectsPanel, AgentsPanel):
+            panel = self.query_one(panel_type)
+            panel.border_title = (
+                panel.BORDER_TITLE + self._LOADING_SUFFIX
+                if loading
+                else panel.BORDER_TITLE
+            )
+
+    def _restore_panel_title(self, panel_type: type) -> None:
+        panel = self.query_one(panel_type)
+        panel.border_title = panel.BORDER_TITLE
+
+    def _refresh_sessions_panel(self, bundle: TuiRefreshBundle) -> None:
+        if self._cfg is None:
+            return
+        self.query_one(SessionsPanel).refresh_data(
+            self._cfg, bundle.snap, bundle.settings
+        )
+
+    def _refresh_projects_panel(self, bundle: TuiRefreshBundle) -> None:
+        if self._cfg is None:
+            return
+        self.query_one(ProjectsPanel).refresh_data(
+            self._cfg, bundle.snap, bundle.settings
+        )
+
+    def _refresh_agents_panel(self, bundle: TuiRefreshBundle) -> None:
+        self.query_one(AgentsPanel).refresh_data(bundle.snap, bundle.settings)
+
     def _apply_refresh_bundle(self, bundle: TuiRefreshBundle) -> None:
         if self._cfg is None:
             return
         self._tmux = bundle.snap
-        self.query_one(SessionsPanel).refresh_data(
-            self._cfg, bundle.snap, bundle.settings
-        )
-        self.query_one(ProjectsPanel).refresh_data(
-            self._cfg, bundle.snap, bundle.settings
-        )
-        self.query_one(AgentsPanel).refresh_data(bundle.snap, bundle.settings)
+        self._refresh_sessions_panel(bundle)
+        self._refresh_projects_panel(bundle)
+        self._refresh_agents_panel(bundle)
         self._update_preview()
 
     def _sync_panels(self, *, reload_config: bool = False) -> None:

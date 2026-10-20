@@ -14,9 +14,17 @@
 | 9 | Shared tree helpers on `TxsTreePanel` | done | `subsequence_match`, expand/restore/cursor |
 | 10 | `ProjectConfig` name index | done | `_projects_by_name` on parse |
 | 11 | TUI refresh orchestration | done | `src/txs/tui/sync.py` |
+| 12 | Lazy startup (layout first, staged panels) | done | Worker fetch + Sessions → Agents → Projects |
 
 ## Refresh flow
 
 1. Optional `maybe_reload_config()` (mtime check on `projects.conf`).
 2. `fetch_refresh_bundle()` — clear git caches, one tmux snapshot, one settings read.
 3. All panels `refresh_data(..., bundle)`.
+
+## Startup (lazy)
+
+1. `compose()` paints empty trees immediately; panel titles show `…` while loading.
+2. Background worker runs `fetch_refresh_bundle()`.
+3. Main thread, one frame apart: Sessions (+ preview) → Agents → Projects → cursors.
+4. Manual `r` still runs a full synchronous refresh.
