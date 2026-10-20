@@ -570,6 +570,9 @@ class TxsApp(App):
         if self._filter_active:
             return action in ("clear_filter", "quit", "toggle_help_panel")
 
+        if action == "clear_filter":
+            return bool(self._tree_panel_filter(pid))
+
         match action:
             case "toggle_help_panel":
                 return len(self.screen_stack) <= 1
@@ -752,6 +755,13 @@ class TxsApp(App):
     # Filter
     # ------------------------------------------------------------------
 
+    def _tree_panel_filter(self, panel_id: str | None) -> str:
+        if panel_id == "sessions-tree":
+            return self.query_one(SessionsPanel)._filter
+        if panel_id == "projects-tree":
+            return self.query_one(ProjectsPanel)._filter
+        return ""
+
     def action_start_filter(self) -> None:
         self._filter_panel_id = self._active_panel_id()
         self._filter_active = True
@@ -763,15 +773,21 @@ class TxsApp(App):
 
     def action_clear_filter(self) -> None:
         """Esc — clear filter and restore all results."""
+        if self._filter_active:
+            panel_id = self._filter_panel_id
+        else:
+            panel_id = self._active_panel_id()
+            if not self._tree_panel_filter(panel_id):
+                return
         self._filter_active = False
         self.query_one("#filter-bar").display = False
         self.query_one("#filter-input", Input).value = ""
-        panel = self._get_active_tree()
-        if panel and self._cfg and isinstance(panel, (SessionsPanel, ProjectsPanel)):
+        panel = self.query_one(f"#{panel_id}")
+        if self._cfg and isinstance(panel, (SessionsPanel, ProjectsPanel)):
             panel.set_filter("")
             self._sync_panels(reload_config=False)
             panel.border_title = panel.BORDER_TITLE
-        self.query_one(f"#{self._filter_panel_id}").focus()
+        self.query_one(f"#{panel_id}").focus()
         self.refresh_bindings()
 
     def _dismiss_filter_bar(self) -> None:
