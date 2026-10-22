@@ -2,19 +2,16 @@ PREFIX    ?= $(HOME)/.local
 CONFDIR   ?= $(HOME)/.config/txs
 
 BINDIR    = $(PREFIX)/bin
-VENVDIR   = $(PREFIX)/lib/txs-venv
 SHAREDIR  = $(PREFIX)/share/txs/completions
 
 .PHONY: install uninstall test lint help
 
 install:
 	mkdir -p "$(BINDIR)" "$(SHAREDIR)"
-	python3 -m venv "$(VENVDIR)"
-	"$(VENVDIR)/bin/pip" install --quiet .
-	ln -sf "$(VENVDIR)/bin/txs" "$(BINDIR)/txs"
+	UV_TOOL_BIN_DIR="$(BINDIR)" uv tool install --reinstall .
 	@# Generate completions from the installed binary
-	@"$(BINDIR)/txs" --show-completion bash > "$(SHAREDIR)/txs.bash" 2>/dev/null || true
-	@"$(BINDIR)/txs" --show-completion zsh  > "$(SHAREDIR)/txs.zsh"  2>/dev/null || true
+	@env _TXS_COMPLETE=source_bash "$(BINDIR)/txs" > "$(SHAREDIR)/txs.bash" 2>/dev/null || true
+	@env _TXS_COMPLETE=source_zsh "$(BINDIR)/txs"  > "$(SHAREDIR)/txs.zsh"  2>/dev/null || true
 	@echo "Generated shell completions in $(SHAREDIR)"
 	@if [ ! -f "$(CONFDIR)/projects.conf" ]; then \
 		install -Dm644 examples/projects.conf.example "$(CONFDIR)/projects.conf"; \
@@ -35,9 +32,15 @@ install:
 	@echo "  zsh:  source $(SHAREDIR)/txs.zsh"
 	@echo "  bash: source $(SHAREDIR)/txs.bash"
 
+completion:
+	mkdir -p "$(BINDIR)" "$(SHAREDIR)"
+	@# Generate completions from the installed binary
+	@env _TXS_COMPLETE=source_bash "$(BINDIR)/txs" > "$(SHAREDIR)/txs.bash" 2>/dev/null || true
+	@env _TXS_COMPLETE=source_zsh "$(BINDIR)/txs"  > "$(SHAREDIR)/txs.zsh"  2>/dev/null || true
+	@echo "Generated shell completions in $(SHAREDIR)"
+
 uninstall:
-	rm -f "$(BINDIR)/txs"
-	rm -rf "$(VENVDIR)"
+	-uv tool uninstall txs
 	rm -rf "$(PREFIX)/share/txs"
 	@echo "Uninstalled txs (config at $(CONFDIR) was kept)"
 
