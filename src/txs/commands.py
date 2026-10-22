@@ -563,25 +563,14 @@ def cmd_config(target: str = "") -> None:
 
 
 def cmd_update() -> None:
-    install_url = (
-        "https://raw.githubusercontent.com/emrecanaltinsoy/txs-python/main/install.sh"
-    )
+    repo_url = "git+https://github.com/emrecanaltinsoy/txs-python"
 
-    if not shutil.which("curl"):
-        error("'curl' is required to update txs.")
+    if not shutil.which("uv"):
+        error("'uv' is required to update txs.")
         raise SystemExit(1)
 
     info(f"Updating txs (current: {TXS_VERSION})...")
-    result = subprocess.run(
-        ["curl", "-fsSL", install_url],
-        capture_output=False,
-        stdout=subprocess.PIPE,
-    )
-    if result.returncode != 0:
-        error("txs update failed.")
-        raise SystemExit(1)
-
-    proc = subprocess.run(["bash"], input=result.stdout)
+    proc = subprocess.run(["uv", "tool", "install", "--reinstall", repo_url])
     if proc.returncode != 0:
         error("txs update failed.")
         raise SystemExit(1)
