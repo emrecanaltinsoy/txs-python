@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "txs"
-version = "0.3.1"
+version = "0.3.2"
 description = "Manage tmux sessions from predefined project directories"
 readme = "README.md"
 license = { file = "LICENSE" }
