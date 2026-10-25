@@ -352,6 +352,10 @@ vim.keymap.set("n", "<leader>tr", function()
 end, { desc = "Remove worktree" })
 ```
 
+## Testing
+
+See [the Testing Guide](docs/testing.md) for comprehensive testing patterns, examples, and guidelines.
+
 ## License
 
 [GPL-3.0](LICENSE)

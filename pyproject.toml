@@ -31,4 +31,8 @@ testpaths = ["tests"]
 src = ["src"]
 
 [dependency-groups]
-dev = ["pytest>=9.1.1", "ruff>=0.17.1"]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.17.1",
+]

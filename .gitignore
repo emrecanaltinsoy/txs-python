@@ -36,3 +36,4 @@ graphify-out/**
 !.pi/skills/**
 
 txsbench
+.coverage
