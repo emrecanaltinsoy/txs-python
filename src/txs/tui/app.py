@@ -18,6 +18,7 @@ from txs.tmux import (
     get_active_sessions as _get_active_sessions,
     get_session_worktree_paths,
     kill_agent,
+    kill_session_inplace,
     launch_agent,
 )
 from txs.tui.sync import TuiRefreshBundle, fetch_refresh_bundle, maybe_reload_config
@@ -175,6 +176,38 @@ class CwdPickerScreen(ModalScreen[str | None]):
         if event.key == "escape":
             self.dismiss(None)
             event.stop()
+
+
+class ConfirmKillScreen(ModalScreen[bool]):
+    """Confirm killing a session. 'y' confirms; any other key means No (default)."""
+
+    CSS = """
+    ConfirmKillScreen {
+        align: center middle;
+    }
+    #confirm-dialog {
+        width: 60;
+        height: auto;
+        border: round $error;
+        background: $surface;
+        padding: 1 2;
+    }
+    #confirm-prompt {
+        height: auto;
+    }
+    """
+
+    def __init__(self, session: str) -> None:
+        super().__init__()
+        self._session = session
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="confirm-dialog"):
+            yield Label(f"Kill session '{self._session}'? [y/N]", id="confirm-prompt")
+
+    def on_key(self, event) -> None:
+        self.dismiss(event.key == "y")
+        event.stop()
 
 
 class SessionPickerScreen(ModalScreen[str | None]):
@@ -636,7 +669,14 @@ class TxsApp(App):
         if pid == "sessions-tree":
             data = self.query_one(SessionsPanel).selected_node_data()
             if data and data.session:
-                self.app.exit(("kill_session", data.session))
+                session = data.session
+
+                def _on_confirm(confirmed: bool | None) -> None:
+                    if confirmed:
+                        kill_session_inplace(session)
+                        self._sync_panels()
+
+                self.push_screen(ConfirmKillScreen(session), _on_confirm)
         elif pid == "agents-tree":
             data = self.query_one(AgentsPanel).selected_node_data()
             if data and data.is_leaf and data.pane_id:

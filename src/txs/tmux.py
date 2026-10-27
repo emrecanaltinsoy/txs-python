@@ -371,6 +371,21 @@ def launch_agent(session: str, label: str, cwd: str) -> None:
         subprocess.run(["tmux", "send-keys", "-t", pane_id, "pi", "Enter"], check=True)
 
 
+def kill_session_inplace(session: str) -> None:
+    """Kill a tmux session without printing (safe while a TUI is running)."""
+    if not session_exists(session):
+        return
+    if is_inside_tmux():
+        cur = subprocess.run(
+            ["tmux", "display-message", "-p", "#{session_name}"],
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        if cur == session:
+            subprocess.run(["tmux", "switch-client", "-l"])
+    subprocess.run(["tmux", "kill-session", "-t", f"={session}"], check=True)
+
+
 def kill_agent(pane_id: str, session: str) -> None:
     """Kill an agent pane; remove the agents window if it was the last pane."""
     # Count panes in the agents window before killing
