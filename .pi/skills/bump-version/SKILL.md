@@ -24,24 +24,33 @@ Releases a new version of txs-python. Steps:
    - `src/txs/__init__.py` — replace the `TXS_VERSION = "..."` line
    - `pyproject.toml` — replace the `version = "..."` line under `[project]`
 
-5. **Stage and commit**:
+5. **Refresh the lockfile** so `uv.lock` records the new version of the local package:
 
    ```bash
-   git add src/txs/__init__.py pyproject.toml
+   uv lock
+   ```
+
+   Verify `uv.lock` now shows the new version for `name = "txs"` (the editable entry).
+
+6. **Stage and commit**:
+
+   ```bash
+   git add src/txs/__init__.py pyproject.toml uv.lock
    git commit -m "chore(release): v<NEW_VERSION>"
    ```
 
-6. **Create annotated tag**:
+7. **Create annotated tag**:
 
    ```bash
    git tag -a "v<NEW_VERSION>" -m "v<NEW_VERSION>"
    ```
 
-7. **Report** the new version, commit hash, and tag to the user.
+8. **Report** the new version, commit hash, and tag to the user.
 
 ## Rules
 
 - Never bump without explicit confirmation of the bump type.
 - Do not push — just commit and tag locally.
-- Do not touch any file other than `src/txs/__init__.py` and `pyproject.toml`.
+- Do not touch any file other than `src/txs/__init__.py`, `pyproject.toml` and `uv.lock`.
+- Never bypass commit hooks (no `--no-verify`).
 - If the working tree has unstaged changes, warn the user before proceeding.
