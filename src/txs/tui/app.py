@@ -65,7 +65,7 @@ class LabelInputScreen(ModalScreen[str | None]):
         self.query_one("#label-input", Input).focus()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        self.dismiss(event.value.strip() or None)
+        self.dismiss(event.value.strip())
 
     def on_key(self, event) -> None:
         if event.key == "escape":
@@ -729,10 +729,8 @@ class TxsApp(App):
         )
 
     def _on_label_entered(self, session: str, label: str | None) -> None:
-        # label=None means user cancelled
-        if label is None and not isinstance(label, str):
-            # Distinguish cancel (dismiss(None)) from blank submit (dismiss(None) too — we treat both as "use default")
-            pass
+        if label is None:
+            return
         # Resolve cwd
         paths = get_session_worktree_paths(session)
         if len(paths) == 1:
