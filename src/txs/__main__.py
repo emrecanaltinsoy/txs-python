@@ -108,7 +108,7 @@ def _run_tui() -> None:
                     attach_or_switch(sname)
             else:
                 # Direct project
-                cmd_attach(project, wt_path or "")
+                cmd_attach(project, os.path.basename(wt_path) if wt_path else "")
 
         case "kill_session":
             cmd_kill(args[0])

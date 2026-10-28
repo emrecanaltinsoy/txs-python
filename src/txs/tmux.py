@@ -102,7 +102,7 @@ def find_window_by_path(session: str, worktree_path: str) -> str | None:
             "list-panes",
             "-t",
             f"={session}",
-            "-a",
+            "-s",
             "-F",
             "#{window_index}|#{pane_current_path}",
         ],

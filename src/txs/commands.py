@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -121,7 +122,7 @@ def _attach_bare_repo(
                 "send-keys",
                 "-t",
                 f"={session_name}:",
-                f"cd {target_wt_path}",
+                f"cd {shlex.quote(target_wt_path)}",
                 "Enter",
             ],
             check=True,
@@ -775,7 +776,7 @@ def cmd_clone_bare(repo_url: str, folder_name: str = "") -> None:
         raise SystemExit(1)
 
     os.makedirs(folder_name)
-    cwd = os.path.join(os.getcwd(), folder_name)
+    cwd = os.path.abspath(folder_name)
 
     info("Cloning bare repository...")
     subprocess.run(["git", "clone", "--bare", repo_url, ".bare"], cwd=cwd, check=True)
@@ -796,7 +797,7 @@ def cmd_clone_bare(repo_url: str, folder_name: str = "") -> None:
         raise SystemExit(1)
 
     info(f"Creating worktree for [green]{default_branch}[/green]...")
-    wt_dest = os.path.join(cwd, f"{folder_name}.{default_branch}")
+    wt_dest = compute_wt_path(cwd, "bare", default_branch)
     has_local = (
         subprocess.run(
             ["git", "show-ref", "--verify", "--quiet", f"refs/heads/{default_branch}"],
