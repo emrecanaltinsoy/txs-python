@@ -4,6 +4,7 @@ import asyncio
 import shutil
 import subprocess
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -68,16 +69,22 @@ def test_tui_attaches_configured_bare_worktree(tmp_path, monkeypatch):
     opened.assert_called_once_with("repo", str(worktree), "")
 
 
+@pytest.fixture
+def tmux_socket():
+    # macOS pytest paths can exceed the Unix socket filename limit.
+    with TemporaryDirectory(prefix="txs-", dir="/tmp") as directory:
+        yield str(Path(directory) / "tmux.sock")
+
+
 @pytest.mark.skipif(shutil.which("tmux") is None, reason="tmux is not installed")
 def test_window_lookup_searches_all_windows_in_only_requested_session(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, tmux_socket
 ):
-    socket = str(tmp_path / "tmux.sock")
     original_run = subprocess.run
 
     def isolated_run(args, **kwargs):
         if args[0] == "tmux":
-            args = ["tmux", "-S", socket, *args[1:]]
+            args = ["tmux", "-S", tmux_socket, *args[1:]]
         return original_run(args, **kwargs)
 
     target = tmp_path / "target"
