@@ -489,6 +489,7 @@ def cmd_switch() -> None:
 
 
 def _handle_selection(cfg: ProjectConfig, entry: PickerEntry) -> None:
+    """Attach the selected project or exact worktree from the fzf picker."""
     from txs.commands import (  # late import to avoid circular dependency
         _attach_bare_repo,
         _ensure_session,
@@ -508,12 +509,11 @@ def _handle_selection(cfg: ProjectConfig, entry: PickerEntry) -> None:
 
         case "+":
             if entry.wt_path:
-                basename = os.path.basename(entry.wt_path)
                 proj_path = expand_path(get_project_prop(cfg, entry.project, "path"))
 
                 if os.path.isdir(proj_path) and is_bare_repo(proj_path):
                     # Direct bare repo project worktree
-                    cmd_attach(entry.project, basename)
+                    cmd_attach(entry.project, entry.wt_path)
                 else:
                     # Depth-discovered repo (normal or bare worktree)
                     on_create = get_project_prop(cfg, entry.project, "on_create")
@@ -527,7 +527,7 @@ def _handle_selection(cfg: ProjectConfig, entry: PickerEntry) -> None:
                             parent,
                             sname,
                             on_create,
-                            basename,
+                            entry.wt_path,
                             created,
                         )
                     else:

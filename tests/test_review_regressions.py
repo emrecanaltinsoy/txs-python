@@ -11,13 +11,14 @@ from unittest.mock import Mock
 import pytest
 from textual.app import App
 
-from txs import commands, config, tmux
+from txs import commands, config, tmux, ui
 from txs.__main__ import _run_tui
 from txs.tui.app import LabelInputScreen, TxsApp
 
 
 @pytest.mark.parametrize("name", ["work tree", "work'tree", "wt;touch marker;#"])
 def test_first_bare_attach_treats_worktree_path_as_literal(tmp_path, monkeypatch, name):
+    """Treat special characters in worktree paths as literal directory names."""
     worktree = tmp_path / name
     worktree.mkdir()
     calls = []
@@ -43,9 +44,13 @@ def test_first_bare_attach_treats_worktree_path_as_literal(tmp_path, monkeypatch
     assert not (tmp_path / "marker").exists()
 
 
-def test_tui_attaches_configured_bare_worktree(tmp_path, monkeypatch):
-    worktree = tmp_path / "repo.main"
-    worktree.mkdir()
+@pytest.mark.parametrize("picker", ["tui", "fzf"])
+def test_tui_attaches_configured_bare_worktree(tmp_path, monkeypatch, picker):
+    """Both pickers attach the chosen path when worktree basenames collide."""
+    worktree = tmp_path / "second" / "repo.main"
+    other = tmp_path / "first" / "repo.main"
+    worktree.mkdir(parents=True)
+    other.mkdir(parents=True)
     conf = tmp_path / "projects.conf"
     conf.write_text(f"[repo]\npath = {tmp_path}\n")
     cfg = config.parse_config(conf)
@@ -55,7 +60,9 @@ def test_tui_attaches_configured_bare_worktree(tmp_path, monkeypatch):
     monkeypatch.setattr(commands, "_ensure_session", lambda *args: "existed")
     monkeypatch.setattr(commands, "is_bare_repo", lambda _: True)
     monkeypatch.setattr(
-        commands, "get_project_worktrees", lambda _: [(str(worktree), worktree.name)]
+        commands,
+        "get_project_worktrees",
+        lambda _: [(str(other), other.name), (str(worktree), worktree.name)],
     )
     monkeypatch.setattr(commands, "open_worktree_in_session", opened)
     monkeypatch.setattr(
@@ -64,13 +71,21 @@ def test_tui_attaches_configured_bare_worktree(tmp_path, monkeypatch):
         lambda _: ("attach_project", "repo", str(tmp_path), str(worktree), "repo"),
     )
 
-    _run_tui()
+    if picker == "tui":
+        _run_tui()
+    else:
+        monkeypatch.setattr(ui, "is_bare_repo", lambda _: True)
+        ui._handle_selection(
+            cfg,
+            ui.PickerEntry("+", "", "repo", str(worktree), "", ""),
+        )
 
     opened.assert_called_once_with("repo", str(worktree), "")
 
 
 @pytest.fixture
 def tmux_socket():
+    """Provide a short, isolated socket path and remove it after teardown."""
     # macOS pytest paths can exceed the Unix socket filename limit.
     with TemporaryDirectory(prefix="txs-", dir="/tmp") as directory:
         yield str(Path(directory) / "tmux.sock")
@@ -80,9 +95,11 @@ def tmux_socket():
 def test_window_lookup_searches_all_windows_in_only_requested_session(
     tmp_path, monkeypatch, tmux_socket
 ):
+    """Keep live lookup scoped to one session across all of its windows."""
     original_run = subprocess.run
 
     def isolated_run(args, **kwargs):
+        """Route only tmux commands to the test server."""
         if args[0] == "tmux":
             args = ["tmux", "-S", tmux_socket, *args[1:]]
         return original_run(args, **kwargs)
@@ -137,6 +154,7 @@ def test_window_lookup_searches_all_windows_in_only_requested_session(
     "keys,label", [(["escape"], None), (["enter"], ""), (["r", "enter"], "r")]
 )
 def test_agent_label_cancel_and_submit_are_distinct(monkeypatch, keys, label):
+    """Escape cancels, while blank and custom labels continue agent creation."""
     launch = Mock()
     paths = Mock(return_value=[("/repo", "repo")])
     host = SimpleNamespace(_launch=launch)
@@ -166,6 +184,7 @@ def test_agent_label_cancel_and_submit_are_distinct(monkeypatch, keys, label):
 def test_clone_bare_keeps_default_worktree_inside_destination(
     tmp_path, monkeypatch, destination
 ):
+    """All destination forms keep the default worktree below the clone root."""
     origin = tmp_path / "origin"
     subprocess.run(["git", "init", "-q", "-b", "main", str(origin)], check=True)
     subprocess.run(
@@ -201,3 +220,53 @@ def test_clone_bare_keeps_default_worktree_inside_destination(
         check=True,
     ).stdout
     assert f"worktree {root / f'{root.name}.main'}\n" in worktrees
+
+
+@pytest.mark.parametrize("selector", ["repo.main", "full", "missing"])
+def test_bare_attach_accepts_cli_names_and_exact_paths(tmp_path, monkeypatch, selector):
+    """Keep CLI name selectors and reject paths outside the listed worktrees."""
+    worktree = tmp_path / "repo.main"
+    opened = Mock()
+    monkeypatch.setattr(
+        commands, "get_project_worktrees", lambda _: [(str(worktree), worktree.name)]
+    )
+    monkeypatch.setattr(commands, "open_worktree_in_session", opened)
+    if selector == "full":
+        selector = str(worktree)
+    elif selector == "missing":
+        selector = str(tmp_path / "unlisted" / "repo.main")
+        with pytest.raises(SystemExit):
+            commands._attach_bare_repo(
+                "repo", str(tmp_path), "repo", "", selector, False
+            )
+        opened.assert_not_called()
+        return
+    commands._attach_bare_repo("repo", str(tmp_path), "repo", "", selector, False)
+    opened.assert_called_once_with("repo", str(worktree), "")
+
+
+@pytest.mark.parametrize(
+    "requested,pane,expected",
+    [
+        ("/repo/", "/repo", "2"),
+        ("/repo///", "/repo/src", "2"),
+        ("/repo/", "/repository", None),
+        ("/", "/repo", "2"),
+        ("/", "/", "2"),
+        ("/repo", "/repo/src", "2"),
+    ],
+)
+def test_live_and_snapshot_window_lookup_normalize_trailing_slashes(
+    monkeypatch, requested, pane, expected
+):
+    """Reuse existing windows while preserving root and directory boundaries."""
+    monkeypatch.setattr(
+        tmux.subprocess,
+        "run",
+        lambda args, **kwargs: subprocess.CompletedProcess(
+            args, 0, stdout=f"2|{pane}\n"
+        ),
+    )
+    snap = tmux.TmuxSnapshot(("repo",), {}, [], {"repo": [("2", pane)]})
+    assert tmux.find_window_by_path("repo", requested) == expected
+    assert snap.window_for_path("repo", requested) == expected

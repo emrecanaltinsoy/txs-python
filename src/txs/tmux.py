@@ -96,6 +96,8 @@ def invalidate_window_cache() -> None:
 
 def find_window_by_path(session: str, worktree_path: str) -> str | None:
     """Return window index if any pane in the session is at worktree_path."""
+    worktree_path = worktree_path.rstrip("/") or "/"
+    prefix = worktree_path.rstrip("/") + "/"
     result = subprocess.run(
         [
             "tmux",
@@ -113,7 +115,7 @@ def find_window_by_path(session: str, worktree_path: str) -> str | None:
         if not line:
             continue
         win_index, _, pane_path = line.partition("|")
-        if pane_path == worktree_path or pane_path.startswith(worktree_path + "/"):
+        if pane_path == worktree_path or pane_path.startswith(prefix):
             return win_index
     return None
 
@@ -259,7 +261,8 @@ class TmuxSnapshot:
 
     def window_for_path(self, session: str, worktree_path: str) -> str | None:
         """Return window index if any pane in session is at worktree_path."""
-        prefix = worktree_path + "/"
+        worktree_path = worktree_path.rstrip("/") or "/"
+        prefix = worktree_path.rstrip("/") + "/"
         for win_index, pane_path in self.pane_locations.get(session, []):
             if pane_path == worktree_path or pane_path.startswith(prefix):
                 return win_index

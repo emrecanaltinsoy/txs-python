@@ -46,6 +46,7 @@ def _root(
 
 
 def _run_tui() -> None:
+    """Run the picker and attach to the selected session, project, or worktree."""
     import os
     from txs.commands import _attach_bare_repo, _ensure_session, cmd_attach, cmd_kill
     from txs.config import expand_path, get_project_prop, parse_config
@@ -97,7 +98,7 @@ def _run_tui() -> None:
                             parent,
                             sname,
                             on_create,
-                            os.path.basename(wt_path),
+                            wt_path,
                             created,
                         )
                     else:
@@ -108,7 +109,7 @@ def _run_tui() -> None:
                     attach_or_switch(sname)
             else:
                 # Direct project
-                cmd_attach(project, os.path.basename(wt_path) if wt_path else "")
+                cmd_attach(project, wt_path or "")
 
         case "kill_session":
             cmd_kill(args[0])
