@@ -65,6 +65,7 @@ class LabelInputScreen(ModalScreen[str | None]):
         self.query_one("#label-input", Input).focus()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Submit a label, preserving an empty string for the default label."""
         self.dismiss(event.value.strip())
 
     def on_key(self, event) -> None:
@@ -729,6 +730,7 @@ class TxsApp(App):
         )
 
     def _on_label_entered(self, session: str, label: str | None) -> None:
+        """Choose the agent directory unless the label dialog was cancelled."""
         if label is None:
             return
         # Resolve cwd

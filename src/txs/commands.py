@@ -92,14 +92,14 @@ def _attach_bare_repo(
     worktree_selector: str,
     just_created: bool,
 ) -> None:
-    """Handle worktree selection and attach for a bare repo project."""
+    """Attach a bare worktree selected by exact path or CLI basename."""
     from txs.ui import pick_worktree  # avoid top-level circular import
 
     target_wt_path = ""
 
     if worktree_selector:
         for wt, wt_name in get_project_worktrees(path):
-            if wt_name == worktree_selector:
+            if wt == worktree_selector or wt_name == worktree_selector:
                 target_wt_path = wt
                 break
         if not target_wt_path:
@@ -765,6 +765,7 @@ def cmd_wt(subcmd: str = "", branch: str = "", keep_branch: bool = False) -> Non
 
 
 def cmd_clone_bare(repo_url: str, folder_name: str = "") -> None:
+    """Clone into .bare and create the default worktree inside the destination."""
     if not folder_name:
         folder_name = repo_name_from_url(repo_url)
     if not folder_name:
