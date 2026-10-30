@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from textual import on
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, SuspendNotSupported
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.css.query import NoMatches
@@ -22,7 +22,9 @@ from txs.tmux import (
     launch_agent,
 )
 from txs.tui.sync import TuiRefreshBundle, fetch_refresh_bundle, maybe_reload_config
+from txs.tui.fzf import fzf_available, run_fzf_pick
 from txs.tui.panels.agents import AgentNode, AgentsPanel
+from txs.tui.panels.base import TxsTreePanel
 from txs.tui.panels.preview import PreviewPanel
 from txs.tui.panels.projects import ProjectNode, ProjectsPanel
 from txs.tui.panels.sessions import SessionsPanel
@@ -31,6 +33,13 @@ from txs.tui.theme import apply_saved_theme, open_theme_palette, persist_theme
 # ---------------------------------------------------------------------------
 # Modal screens
 # ---------------------------------------------------------------------------
+
+
+_FZF_PANEL_TITLES = {
+    "sessions-tree": "Sessions",
+    "projects-tree": "Projects",
+    "agents-tree": "Agents",
+}
 
 
 class LabelInputScreen(ModalScreen[str | None]):
@@ -618,6 +627,8 @@ class TxsApp(App):
             case "new_agent":
                 return pid in ("sessions-tree", "agents-tree")
             case "start_filter":
+                if fzf_available():
+                    return pid in self._PANELS
                 return pid in ("sessions-tree", "projects-tree")
             case "refresh" | "quit":
                 return True
@@ -803,6 +814,43 @@ class TxsApp(App):
         return ""
 
     def action_start_filter(self) -> None:
+        """'/' — fzf picker when installed; otherwise the inline filter."""
+        pid = self._active_panel_id()
+        if fzf_available():
+            self._open_fzf_picker(pid)
+        elif pid in ("sessions-tree", "projects-tree"):
+            self._start_inline_filter()
+
+    def _open_fzf_picker(self, pid: str) -> None:
+        """Hand the terminal to fzf, then run the panel's Enter action on the pick."""
+        panel = self.query_one(f"#{pid}", TxsTreePanel)
+        leaves = panel.leaf_nodes()
+        if not leaves:
+            return
+        labels = [panel.leaf_label(node) for node in leaves]
+        title = _FZF_PANEL_TITLES.get(pid, "Select")
+        try:
+            with self.suspend():
+                idx = run_fzf_pick(
+                    labels,
+                    header=f"{title}  (Enter: open, Esc: cancel)",
+                    prompt=f"{title.lower()}> ",
+                )
+        except SuspendNotSupported:
+            # Terminal can't hand over (e.g. headless): keep the inline filter.
+            if pid in ("sessions-tree", "projects-tree"):
+                self._start_inline_filter()
+            return
+        panel.focus()
+        if idx is None:
+            return
+        panel.reveal_node(leaves[idx])
+        if pid == "agents-tree":
+            self._switch_to_selected_agent()
+        else:
+            self.action_attach()
+
+    def _start_inline_filter(self) -> None:
         self._filter_panel_id = self._active_panel_id()
         self._filter_active = True
         self.query_one("#filter-bar").display = True

@@ -3,8 +3,14 @@ prefix := env("PREFIX", home / ".local")
 bindir := prefix / "bin"
 sharedir := prefix / "share/txs/completions"
 
-test:
-  uv run pytest -v
+test cov="":
+  #!/usr/bin/env bash
+  set -euo pipefail
+  if [ -n "{{cov}}" ]; then
+    uv run pytest -v --cov=. --cov-report=term-missing
+  else
+    uv run pytest -v
+  fi
 
 check:
   prek run

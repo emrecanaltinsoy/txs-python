@@ -61,6 +61,42 @@ class TxsTreePanel(Tree):
         it = iter(text.lower())
         return all(c in it for c in query.lower())
 
+    def leaf_nodes(self) -> list[TreeNode]:
+        """Selectable leaves (data.is_leaf), in tree order, including collapsed ones."""
+        leaves: list[TreeNode] = []
+
+        def _walk(node: TreeNode) -> None:
+            for child in node.children:
+                if getattr(child.data, "is_leaf", False):
+                    leaves.append(child)
+                _walk(child)
+
+        _walk(self.root)
+        return leaves
+
+    @staticmethod
+    def leaf_label(node: TreeNode) -> str:
+        """Plain 'parent › leaf' text for the fzf picker."""
+        leaf = node.label.plain if hasattr(node.label, "plain") else str(node.label)
+        parent = node.parent
+        if parent is None or parent.label is None:
+            return leaf.strip()
+        parent_text = (
+            parent.label.plain if hasattr(parent.label, "plain") else str(parent.label)
+        )
+        return f"{parent_text.strip()} › {leaf.strip()}"
+
+    def reveal_node(self, node: TreeNode) -> None:
+        """Expand ancestors of ``node`` and move the cursor onto it."""
+        parent = node.parent
+        while parent is not None:
+            parent.expand()
+            parent = parent.parent
+        # Expanding leaves node._line stale until the visible lines are rebuilt;
+        # reading last_line forces that rebuild before the cursor moves.
+        _ = self.last_line
+        self.move_cursor(node)
+
     def _collect_expanded_keys(
         self,
         node_type: type[NodeDataT],
