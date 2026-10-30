@@ -825,12 +825,12 @@ class TxsApp(App):
         """Hand the terminal to fzf, then run the panel's Enter action on the pick."""
         panel = self.query_one(f"#{pid}", TxsTreePanel)
         leaves = panel.leaf_nodes()
-        if not leaves:
-            return
         labels = [panel.leaf_label(node) for node in leaves]
         title = _FZF_PANEL_TITLES.get(pid, "Select")
         try:
             with self.suspend():
+                if not leaves:
+                    return
                 idx = run_fzf_pick(
                     labels,
                     header=f"{title}  (Enter: open, Esc: cancel)",
