@@ -236,7 +236,7 @@ Running `txs` with no arguments opens a lazygit-style terminal UI.
 | `s` / `↵` | Switch to / attach selected session or project      |
 | `a`       | Launch a new `pi` agent for the focused session     |
 | `x`       | Kill focused session (Sessions panel) or agent pane (Agents panel) |
-| `/`       | Filter current panel (Sessions and Projects panels) |
+| `/`       | Filter focused panel: fzf picker if installed (all panels), otherwise inline filter (Sessions and Projects) |
 | `Esc`     | Clear filter                                        |
 | `r`       | Refresh all panels                                  |
 | `q`       | Quit                                                |
