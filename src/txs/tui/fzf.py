@@ -37,6 +37,7 @@ def run_fzf_pick(labels: list[str], header: str, prompt: str) -> int | None:
     result = subprocess.run(
         [
             "fzf",
+            "--no-print-query",
             "--delimiter=\t",
             "--with-nth=2..",
             f"--header={header}",
