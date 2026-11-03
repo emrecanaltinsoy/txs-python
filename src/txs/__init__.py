@@ -1,1 +1,1 @@
-TXS_VERSION = "0.3.4"
+TXS_VERSION = "0.4.0"
