@@ -56,7 +56,7 @@ def test_parsing(tmp_path):
     path = {tmp_path}/project
     """
 
-    config = parse_config(tmp_path / "projects.conf")
+    config = parse_config(tmp_path / "config.toml")
     assert len(config.projects) == 1
 ```
 
@@ -94,8 +94,8 @@ Tests use a `cfg()` helper to simplify config tests:
 
 ```python
 def cfg(content: str, tmp_path: Path) -> ProjectConfig:
-    """Write content to a temp projects.conf and parse it."""
-    p = tmp_path / "projects.conf"
+    """Write content to a temp config.toml and parse it."""
+    p = tmp_path / "config.toml"
     p.write_text(content)
     return parse_config(p)
 
@@ -147,7 +147,7 @@ def test_missing_config_raises(tmp_path):
 
     # This should raise when config file doesn't exist
     with pytest.raises(SystemExit):
-        parse_config(tmp_path / "nonexistent.conf")
+        parse_config(tmp_path / "nonexistent.toml")
 ```
 
 ### 6. Multi-line Config Testing
@@ -180,12 +180,12 @@ def test_invalidates_when_file_touched(tmp_path, monkeypatch):
     from txs.config import parse_config, invalidate_config_cache
 
     # Write config
-    (tmp_path / "projects.conf").write_text("[test]\npath = /tmp/test")
-    parse_config(tmp_path / "projects.conf")
+    (tmp_path / "config.toml").write_text("[test]\npath = /tmp/test")
+    parse_config(tmp_path / "config.toml")
 
     # Monkeypatch mtime to be newer
     monkeypatch.setattr(
-        (tmp_path / "projects.conf"),
+        (tmp_path / "config.toml"),
         "stat",
         lambda: type("obj", (object,), {"st_mtime": float("inf")})(),
     )
@@ -276,7 +276,7 @@ def test_new_option(tmp_path):
     path = {tmp_path}/project
     new_option = true
     """
-    cfg_obj = parse_config(tmp_path / "projects.conf")
+    cfg_obj = parse_config(tmp_path / "config.toml")
     assert cfg_obj.projects[0].new_option == True
 
 def test_new_option_default(tmp_path):
@@ -285,7 +285,7 @@ def test_new_option_default(tmp_path):
     [myproject]
     path = {tmp_path}/project
     """
-    cfg_obj = parse_config(tmp_path / "projects.conf")
+    cfg_obj = parse_config(tmp_path / "config.toml")
     assert cfg_obj.projects[0].new_option == False
 
 def test_new_option_invalid(tmp_path):
@@ -296,7 +296,7 @@ def test_new_option_invalid(tmp_path):
     new_option = invalid_value
     """
     with pytest.raises(ValueError):
-        parse_config(tmp_path / "projects.conf")
+        parse_config(tmp_path / "config.toml")
 ```
 
 ## Performance Testing
@@ -331,8 +331,8 @@ def git_init(path: Path, bare: bool = False) -> None:
     subprocess.run(args, check=True)
 
 def cfg(content: str, tmp_path: Path) -> ProjectConfig:
-    """Write content to a temp projects.conf and parse it."""
-    p = tmp_path / "projects.conf"
+    """Write content to a temp config.toml and parse it."""
+    p = tmp_path / "config.toml"
     p.write_text(content)
     return parse_config(p)
 
@@ -408,11 +408,11 @@ Use `tmp_path` fixture for isolation:
 ```python
 # BAD: Uses current directory
 def test_config(tmp_path):
-    Path("projects.conf").write_text("...")
+    Path("config.toml").write_text("...")
 
 # GOOD: Uses tmp_path
 def test_config(tmp_path):
-    (tmp_path / "projects.conf").write_text("...")
+    (tmp_path / "config.toml").write_text("...")
 ```
 
 ### 3. Config caching
@@ -424,13 +424,13 @@ def test_config_isolation(tmp_path):
     from txs.config import parse_config, invalidate_config_cache
 
     # First parse
-    parse_config(tmp_path / "projects.conf")
+    parse_config(tmp_path / "config.toml")
 
     # Clear cache for next test
     invalidate_config_cache()
 
     # Second parse
-    parse_config(tmp_path / "projects.conf")
+    parse_config(tmp_path / "config.toml")
 ```
 
 ## CI Integration

@@ -283,16 +283,11 @@ def clone_bare(
 
 
 @app.command(name="config")
-def config(
-    target: Annotated[
-        str,
-        typer.Argument(help="'projects' (default) or 'settings'."),
-    ] = "",
-) -> None:
-    """Open a config file in $EDITOR."""
+def config() -> None:
+    """Open config.toml (settings and projects) in $EDITOR."""
     from txs.commands import cmd_config
 
-    cmd_config(target)
+    cmd_config()
 
 
 # ---------------------------------------------------------------------------

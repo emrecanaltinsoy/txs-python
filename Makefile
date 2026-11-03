@@ -13,17 +13,13 @@ install:
 	@env _TXS_COMPLETE=source_bash "$(BINDIR)/txs" > "$(SHAREDIR)/txs.bash" 2>/dev/null || true
 	@env _TXS_COMPLETE=source_zsh "$(BINDIR)/txs"  > "$(SHAREDIR)/txs.zsh"  2>/dev/null || true
 	@echo "Generated shell completions in $(SHAREDIR)"
-	@if [ ! -f "$(CONFDIR)/projects.conf" ]; then \
-		install -Dm644 examples/projects.conf.example "$(CONFDIR)/projects.conf"; \
-		echo "Installed example config to $(CONFDIR)/projects.conf"; \
+	@if [ -f "$(CONFDIR)/config.toml" ]; then \
+		echo "Kept existing config at $(CONFDIR)/config.toml"; \
+	elif [ -f "$(CONFDIR)/projects.conf" ] || [ -f "$(CONFDIR)/config" ]; then \
+		echo "Legacy config found; txs will migrate it to $(CONFDIR)/config.toml on first run"; \
 	else \
-		echo "Kept existing config at $(CONFDIR)/projects.conf"; \
-	fi
-	@if [ ! -f "$(CONFDIR)/config" ]; then \
-		install -Dm644 examples/config.example "$(CONFDIR)/config"; \
-		echo "Installed example settings to $(CONFDIR)/config"; \
-	else \
-		echo "Kept existing settings at $(CONFDIR)/config"; \
+		install -Dm644 examples/config.toml.example "$(CONFDIR)/config.toml"; \
+		echo "Installed example config to $(CONFDIR)/config.toml"; \
 	fi
 	@echo ""
 	@echo "Installed txs to $(BINDIR)/txs"

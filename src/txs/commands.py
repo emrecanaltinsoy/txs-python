@@ -18,12 +18,14 @@ from pathlib import Path
 from txs import TXS_VERSION
 from txs.config import (
     CONFIG_FILE,
-    SETTINGS_FILE,
+    add_project,
     expand_path,
     get_project_prop,
     get_txs_setting,
     invalidate_config_cache,
     parse_config,
+    project_exists,
+    remove_project,
 )
 from txs.git import (
     depth_session_name,
@@ -44,8 +46,8 @@ from txs.tmux import (
     get_session_windows,
     is_inside_tmux,
     sanitize_session_name,
-    worktree_session_name,
     session_exists,
+    worktree_session_name,
 )
 
 # ---------------------------------------------------------------------------
@@ -484,17 +486,11 @@ def cmd_add(raw_path: str = ".") -> None:
         error("Could not derive a project name from path.")
         raise SystemExit(1)
 
-    # Check for duplicate section
-    if CONFIG_FILE.exists():
-        content = CONFIG_FILE.read_text()
-        if re.search(rf"^\[{re.escape(name)}\]\s*$", content, re.MULTILINE):
-            error(f"Project '{name}' already exists in {CONFIG_FILE}")
-            raise SystemExit(1)
+    if project_exists(name):
+        error(f"Project '{name}' already exists in {CONFIG_FILE}")
+        raise SystemExit(1)
 
-    CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with CONFIG_FILE.open("a") as f:
-        f.write(f"\n[{name}]\npath = {resolved}\n")
-
+    add_project(name, resolved)
     invalidate_config_cache()
     info(f"Added project [green]{name}[/green] ({resolved})")
 
@@ -503,33 +499,11 @@ def cmd_remove(project: str) -> None:
     if not CONFIG_FILE.exists():
         error(f"Config file not found: {CONFIG_FILE}")
         raise SystemExit(1)
-
-    content = CONFIG_FILE.read_text()
-    if not re.search(rf"^\[{re.escape(project)}\]\s*$", content, re.MULTILINE):
+    if not project_exists(project):
         error(f"Project '{project}' not found in {CONFIG_FILE}")
         raise SystemExit(1)
 
-    # Remove section header + all following key/continuation lines until next section or EOF
-    lines = content.splitlines()
-    result_lines: list[str] = []
-    skip = False
-    for line in lines:
-        stripped = line.rstrip()
-        if re.match(r"^\[", stripped):
-            if stripped == f"[{project}]":
-                skip = True
-                continue
-            else:
-                skip = False
-        if skip:
-            continue
-        result_lines.append(line)
-
-    # Remove trailing blank lines
-    while result_lines and not result_lines[-1].strip():
-        result_lines.pop()
-
-    CONFIG_FILE.write_text("\n".join(result_lines) + ("\n" if result_lines else ""))
+    remove_project(project)
     invalidate_config_cache()
     info(f"Removed project [green]{project}[/green]")
 
@@ -539,21 +513,12 @@ def cmd_remove(project: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def cmd_config(target: str = "") -> None:
-    match target:
-        case "settings":
-            file = SETTINGS_FILE
-        case "projects" | "":
-            file = CONFIG_FILE
-        case _:
-            error(f"Unknown config target '{target}'. Use: projects, settings")
-            raise SystemExit(1)
-
+def cmd_config() -> None:
     editor = os.environ.get("EDITOR", "vi")
-    if not file.exists():
-        file.parent.mkdir(parents=True, exist_ok=True)
-        file.touch()
-    os.execvp(editor, [editor, str(file)])
+    CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    if not CONFIG_FILE.exists():
+        CONFIG_FILE.touch()
+    os.execvp(editor, [editor, str(CONFIG_FILE)])
 
 
 # ---------------------------------------------------------------------------

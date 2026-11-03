@@ -1,0 +1,50 @@
+# txs configuration
+#
+# One file for everything:
+#   [settings]              tool settings
+#   [defaults]              values applied to every project unless overridden
+#   [projects."<name>"]     one table per project (quote names with dots)
+#
+# Notes:
+#   - Only ~ is expanded in paths; $HOME and other variables are not.
+#   - Dots and colons in session names are replaced with underscores (tmux rule).
+#   - max_depth is not supported in [defaults].
+#   - Multi-line on_create: each line is sent as a separate tmux send-keys command.
+
+[settings]
+auto_add_clone = true          # add repos from 'txs clone-bare' to this file
+fzf_height = "50%"             # fzf picker height (percentage or line count)
+tui_trees_expanded = true      # expand all TUI tree panels on startup
+# tui_theme = "textual-dark"   # written by the TUI when you pick a theme
+worktree_session_truncate = true   # shorten worktree session names (project/branch)
+worktree_session_max_len = 24      # max length of the worktree part of a session name
+
+[defaults]
+# on_create = "echo session ready"
+
+# Uncomment and customize the examples below:
+
+# [projects.my-project]
+# path = "~/projects/my-project"
+# session_name = "myproj"
+# on_create = "nvim ."
+
+# [projects.dotfiles]
+# path = "~/dotfiles"
+# on_create = """tmux split-window -v -l 20
+# tmux select-pane -t 1
+# nvim ."""
+
+# [projects.webapp]
+# path = "~/projects/webapp"
+# on_create = """tmux split-window -v -l 20
+# tmux split-window -h -d
+# tmux send-keys -t 3 "npm run dev" Enter
+# tmux select-pane -t 1
+# nvim ."""
+
+# max_depth example: scan ~/projects up to 2 levels deep, stopping at git repos.
+# [projects.work]
+# path = "~/projects"
+# max_depth = 2
+# on_create = "nvim ."

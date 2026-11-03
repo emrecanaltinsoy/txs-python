@@ -33,7 +33,7 @@ default worktree so you can keep using Git worktrees cleanly.
 
 | Dependency | Required | Notes |
 |------------|----------|-------|
-| Python     | Yes (≥ 3.10) | |
+| Python     | Yes (≥ 3.11) | |
 | tmux       | Yes      | |
 | fzf        | No       | Needed for `txs switch` and the fzf picker |
 | Textual    | Yes      | Installed automatically; powers the TUI |
@@ -113,55 +113,65 @@ This removes txs but keeps your configuration.
 
 ## Configuration
 
-txs reads project definitions from `$HOME/.config/txs/projects.conf`. An example
-config is installed automatically on first install.
+Everything lives in one file, `$HOME/.config/txs/config.toml`:
 
-```ini
-[DEFAULT]
+- `[settings]`: tool-level settings
+- `[defaults]`: values applied to every project unless overridden
+- `[projects."<name>"]`: one table per project
 
-[my-project]
-path = ~/projects/my-project
-session_name = myproj
-on_create = nvim .
+An example is installed on first `make install`. Open the file with `txs config`.
 
-[webapp]
-path = ~/projects/webapp
-on_create = tmux split-window -v -l 20
-    tmux split-window -h -d
-    tmux send-keys -t 3 "npm run dev" Enter
-    tmux select-pane -t 1
-    nvim .
+```toml
+[settings]
+auto_add_clone = true
+fzf_height = "50%"
+
+[defaults]
+# on_create = "echo session ready"
+
+[projects.my-project]
+path = "~/projects/my-project"
+session_name = "myproj"
+on_create = "nvim ."
+
+[projects.webapp]
+path = "~/projects/webapp"
+on_create = """tmux split-window -v -l 20
+tmux split-window -h -d
+tmux send-keys -t 3 "npm run dev" Enter
+tmux select-pane -t 1
+nvim ."""
 ```
 
-### Configuration keys
+### Project keys
 
 | Key            | Required | Description                                                    |
 |----------------|----------|----------------------------------------------------------------|
 | `path`         | Yes      | Directory path for the project (`~` is expanded)               |
-| `session_name` | No       | Custom tmux session name (defaults to section name)            |
-| `on_create`    | No       | Commands to run after session creation (supports multi-line)   |
+| `session_name` | No       | Custom tmux session name (defaults to the project name)        |
+| `on_create`    | No       | Commands to run after session creation (multi-line with `"""`) |
 | `max_depth`    | No       | Scan subdirectories up to this depth for git repos (default 0) |
 
-The `[DEFAULT]` section provides fallback values for all projects. Dots and
-colons in session names are automatically replaced with underscores.
+Values in `[defaults]` apply to every project that doesn't set them. Dots and
+colons in session names are automatically replaced with underscores. Project
+names with dots must be quoted: `[projects."emrecanaltinsoy.github.io"]`.
 
-### Settings file
-
-Tool-level settings live in `$HOME/.config/txs/config`. Simple `key = value` format:
-
-```ini
-auto_add_clone = true
-fzf_height = 50%
-```
+### Settings
 
 | Setting          | Default | Description                                              |
 |------------------|---------|----------------------------------------------------------|
-| `auto_add_clone` | `true`  | Automatically add cloned bare repos to `projects.conf`   |
+| `auto_add_clone` | `true`  | Automatically add cloned bare repos to `config.toml`     |
 | `fzf_height`     | `50%`   | Height of fzf picker (percentage or line count)          |
 | `tui_trees_expanded` | `true`  | Expand all tree branches when the TUI starts        |
 | `tui_theme`          | `textual-dark` | Textual theme for the TUI (command palette → Theme) |
 | `worktree_session_truncate` | `true` | Shorten worktree session names (`project/branch`) to `worktree_session_max_len` |
 | `worktree_session_max_len`  | `24`   | Max length of the worktree part of a session name |
+
+### Migrating from older versions
+
+Earlier versions used `projects.conf` (INI) and `config` (key = value). On first
+run, txs converts both into `config.toml` and renames the originals to
+`projects.conf.bak` and `config.bak`. Nothing is overwritten.
 
 For additional fzf customization (colors, keybindings, layout, etc.), use the
 `FZF_DEFAULT_OPTS` environment variable. See `man fzf` for available options.
@@ -188,7 +198,7 @@ Project configuration:
   txs add [path]                 Add a directory to the config (default: .)
   txs remove <name>              Remove a project from the config
   txs clone-bare <url> [name]    Clone as bare repo + create default worktree
-  txs config [projects|settings] Open a config file in $EDITOR
+  txs config                     Open config.toml in $EDITOR
 
 Other:
   txs version                    Show version

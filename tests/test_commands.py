@@ -61,17 +61,14 @@ def git_commit(path: Path) -> None:
 
 @pytest.fixture(autouse=True)
 def isolate_config(tmp_path, monkeypatch):
-    """Redirect CONFIG_FILE and SETTINGS_FILE to tmp_path for every test."""
+    """Redirect CONFIG_FILE to tmp_path for every test."""
     import txs.commands as cmd_mod
     import txs.config as cfg_mod
 
-    conf = tmp_path / "projects.conf"
-    sett = tmp_path / "config"
+    conf = tmp_path / "config.toml"
 
     monkeypatch.setattr(cfg_mod, "CONFIG_FILE", conf)
-    monkeypatch.setattr(cfg_mod, "SETTINGS_FILE", sett)
     monkeypatch.setattr(cmd_mod, "CONFIG_FILE", conf)
-    monkeypatch.setattr(cmd_mod, "SETTINGS_FILE", sett)
 
     invalidate_config_cache()
     yield
@@ -138,7 +135,7 @@ def test_unknown_command_exits_nonzero():
 def test_ls_invalid_filter(tmp_path, monkeypatch):
     import txs.config as cfg_mod
 
-    conf = tmp_path / "projects.conf"
+    conf = tmp_path / "config.toml"
     conf.touch()
     monkeypatch.setattr(cfg_mod, "CONFIG_FILE", conf)
 
@@ -152,10 +149,9 @@ def test_ls_invalid_filter(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_config_invalid_target():
+def test_config_takes_no_target():
     r = invoke("config", "invalid")
     assert r.exit_code != 0
-    assert "Unknown config target" in r.output or "Unknown config target" in r.stderr
 
 
 # ---------------------------------------------------------------------------
@@ -217,7 +213,7 @@ def test_wt_remove_missing_branch_noninteractive(tmp_path):
 def test_list_alias_same_as_ls(tmp_path, monkeypatch):
     import txs.config as cfg_mod
 
-    conf = tmp_path / "projects.conf"
+    conf = tmp_path / "config.toml"
     conf.touch()
     monkeypatch.setattr(cfg_mod, "CONFIG_FILE", conf)
 
@@ -257,7 +253,7 @@ class TestCmdAdd:
         import txs.commands as cmd_mod
         import txs.config as cfg_mod
 
-        conf = tmp_path / "projects.conf"
+        conf = tmp_path / "config.toml"
         monkeypatch.setattr(cfg_mod, "CONFIG_FILE", conf)
         monkeypatch.setattr(cmd_mod, "CONFIG_FILE", conf)
         invalidate_config_cache()
@@ -273,7 +269,7 @@ class TestCmdAdd:
         import txs.commands as cmd_mod
         import txs.config as cfg_mod
 
-        conf = tmp_path / "projects.conf"
+        conf = tmp_path / "config.toml"
         monkeypatch.setattr(cfg_mod, "CONFIG_FILE", conf)
         monkeypatch.setattr(cmd_mod, "CONFIG_FILE", conf)
         invalidate_config_cache()
@@ -286,7 +282,7 @@ class TestCmdAdd:
         import txs.commands as cmd_mod
         import txs.config as cfg_mod
 
-        conf = tmp_path / "projects.conf"
+        conf = tmp_path / "config.toml"
         monkeypatch.setattr(cfg_mod, "CONFIG_FILE", conf)
         monkeypatch.setattr(cmd_mod, "CONFIG_FILE", conf)
         invalidate_config_cache()
@@ -304,7 +300,7 @@ class TestCmdAdd:
         import txs.commands as cmd_mod
         import txs.config as cfg_mod
 
-        conf = tmp_path / "projects.conf"
+        conf = tmp_path / "config.toml"
         monkeypatch.setattr(cfg_mod, "CONFIG_FILE", conf)
         monkeypatch.setattr(cmd_mod, "CONFIG_FILE", conf)
         invalidate_config_cache()
@@ -323,7 +319,7 @@ class TestCmdAdd:
         import txs.commands as cmd_mod
         import txs.config as cfg_mod
 
-        conf = tmp_path / "projects.conf"
+        conf = tmp_path / "config.toml"
         monkeypatch.setattr(cfg_mod, "CONFIG_FILE", conf)
         monkeypatch.setattr(cmd_mod, "CONFIG_FILE", conf)
         invalidate_config_cache()
@@ -341,7 +337,7 @@ class TestCmdAdd:
         import txs.commands as cmd_mod
         import txs.config as cfg_mod
 
-        conf = tmp_path / "projects.conf"
+        conf = tmp_path / "config.toml"
         monkeypatch.setattr(cfg_mod, "CONFIG_FILE", conf)
         monkeypatch.setattr(cmd_mod, "CONFIG_FILE", conf)
 
@@ -398,7 +394,7 @@ class TestCmdRemove:
         import txs.commands as cmd_mod
         import txs.config as cfg_mod
 
-        conf = tmp_path / "projects.conf"
+        conf = tmp_path / "config.toml"
         monkeypatch.setattr(cfg_mod, "CONFIG_FILE", conf)
         monkeypatch.setattr(cmd_mod, "CONFIG_FILE", conf)
         invalidate_config_cache()
@@ -466,10 +462,9 @@ class TestCloneBare:
         import txs.commands as cmd_mod
         import txs.config as cfg_mod
 
-        conf = tmp_path / "clone-projects.conf"
+        conf = tmp_path / "clone-config.toml"
         monkeypatch.setattr(cfg_mod, "CONFIG_FILE", conf)
         monkeypatch.setattr(cmd_mod, "CONFIG_FILE", conf)
-        monkeypatch.setattr(cmd_mod, "SETTINGS_FILE", tmp_path / "clone-settings")
         invalidate_config_cache()
 
         origin, _base = origin_repo
@@ -492,10 +487,9 @@ class TestCloneBare:
         import txs.commands as cmd_mod
         import txs.config as cfg_mod
 
-        conf = tmp_path / "clone-projects.conf"
+        conf = tmp_path / "clone-config.toml"
         monkeypatch.setattr(cfg_mod, "CONFIG_FILE", conf)
         monkeypatch.setattr(cmd_mod, "CONFIG_FILE", conf)
-        monkeypatch.setattr(cmd_mod, "SETTINGS_FILE", tmp_path / "clone-settings")
         invalidate_config_cache()
 
         origin, _ = origin_repo
@@ -518,13 +512,10 @@ class TestCloneBare:
         import txs.commands as cmd_mod
         import txs.config as cfg_mod
 
-        conf = tmp_path / "clone-projects.conf"
-        sett = tmp_path / "clone-settings"
-        sett.write_text("auto_add_clone = true\n")
+        conf = tmp_path / "clone-config.toml"
+        conf.write_text("[settings]\nauto_add_clone = true\n")
         monkeypatch.setattr(cfg_mod, "CONFIG_FILE", conf)
-        monkeypatch.setattr(cfg_mod, "SETTINGS_FILE", sett)
         monkeypatch.setattr(cmd_mod, "CONFIG_FILE", conf)
-        monkeypatch.setattr(cmd_mod, "SETTINGS_FILE", sett)
         invalidate_config_cache()
 
         origin, _ = origin_repo

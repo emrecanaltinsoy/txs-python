@@ -4,7 +4,7 @@ Thanks for your interest in contributing! This document covers the essentials to
 
 ## Prerequisites
 
-- **Python 3.10+** (required by `pyproject.toml`)
+- **Python 3.11+** (required by `pyproject.toml`)
 - **uv** (recommended package manager)
 - **tmux** (for testing sessions)
 - **git** (for version control)

@@ -262,9 +262,9 @@ class TestDepthOwnerIndex:
 
         conf = tmp_path / "projects.conf"
         conf.write_text(
-            f"[pa]\npath = {tmp_path / 'a'}\nmax_depth = 2\n\n"
-            f"[pb]\npath = {tmp_path / 'b'}\nmax_depth = 2\n\n"
-            f"[explicit-a]\npath = {tmp_path / 'a' / 'x' / 'only-a'}\n"
+            f"[projects.pa]\npath = \"{tmp_path / 'a'}\"\nmax_depth = 2\n\n"
+            f"[projects.pb]\npath = \"{tmp_path / 'b'}\"\nmax_depth = 2\n\n"
+            f"[projects.explicit-a]\npath = \"{tmp_path / 'a' / 'x' / 'only-a'}\"\n"
         )
         cfg = parse_config(conf)
         build_depth_index(cfg)

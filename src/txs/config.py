@@ -1,39 +1,54 @@
 """
-Config parsing — mirrors config.sh.
+Config parsing.
 
-projects.conf  INI-style project definitions.
-config         Simple key=value settings file.
+config.toml is the single source of truth:
+
+    [settings]              tool settings, flat key = value
+    [defaults]              values applied to every project unless overridden
+    [projects."<name>"]     one table per project
+
+Legacy files (projects.conf, config) are converted once on first use. The
+originals are kept with a .bak suffix.
 
 Public API
 ----------
-parse_config()                  -> ProjectConfig   (cached per-process)
+parse_config()                    -> ProjectConfig   (cached per-process)
 get_project_prop(cfg, name, prop) -> str
 find_project_for_session(cfg, session) -> str | None
 is_explicit_project_path(cfg, path) -> bool
-build_depth_index(cfg)          (populates cfg._depth_index in-place)
-find_depth_owner(cfg, dp_name)  -> tuple[str, str] | None
-expand_path(path)               -> str
-get_txs_setting(key)            -> str
-set_txs_setting(key, value)     (writes settings file)
+build_depth_index(cfg)            (populates cfg._depth_index in-place)
+find_depth_owner(cfg, dp_name)    -> tuple[str, str] | None
+expand_path(path)                 -> str
+get_txs_setting(key)              -> str
+set_txs_setting(key, value)       (edits [settings] in place, keeps comments)
+add_project(name, path) / remove_project(name) / project_exists(name)
 invalidate_config_cache()
 """
 
 from __future__ import annotations
 
 import configparser
+import json
 import os
+import re
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from txs.log import warn
+from txs.log import info, warn
 
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
 
 _CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "txs"
-CONFIG_FILE = _CONFIG_DIR / "projects.conf"
-SETTINGS_FILE = _CONFIG_DIR / "config"
+CONFIG_FILE = _CONFIG_DIR / "config.toml"
+
+_SETTINGS_HEADER = "[settings]"
+_DEFAULTS_HEADER = "[defaults]"
+_PROJECT_KNOWN_KEYS = {"path", "session_name", "on_create", "max_depth"}
+_DEFAULT_KNOWN_KEYS = {"on_create", "session_name"}
+_TOP_LEVEL_SECTIONS = {"settings", "defaults", "projects"}
 
 
 # ---------------------------------------------------------------------------
@@ -94,13 +109,120 @@ def reload_config_if_changed() -> None:
     invalidate_config_cache()
 
 
+# ---------------------------------------------------------------------------
+# TOML helpers
+# ---------------------------------------------------------------------------
+
+_BARE_KEY = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _toml_key(key: str) -> str:
+    return key if _BARE_KEY.match(key) else json.dumps(key)
+
+
+def _toml_value(value: str) -> str:
+    """Settings values: booleans and integers stay typed, everything else is a string."""
+    if value in ("true", "false"):
+        return value
+    if re.fullmatch(r"-?\d+", value):
+        return value
+    return json.dumps(value)
+
+
+def _project_header(name: str) -> str:
+    return f"[projects.{_toml_key(name)}]"
+
+
+def _read_toml(path: Path) -> dict:
+    """Parse a config file, migrating legacy files first. Missing file -> {}."""
+    _migrate_legacy(path)
+    if not path.exists():
+        return {}
+    try:
+        return tomllib.loads(path.read_text(encoding="utf-8"))
+    except tomllib.TOMLDecodeError as exc:
+        warn(f"Invalid TOML in {path}: {exc}")
+        return {}
+
+
+# ---------------------------------------------------------------------------
+# Legacy migration (projects.conf + config  ->  config.toml)
+# ---------------------------------------------------------------------------
+
+
+def _read_legacy_settings(path: Path) -> list[tuple[str, str]]:
+    pairs: list[tuple[str, str]] = []
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        value = value.strip()
+        if not value.startswith(('"', "'")):
+            value = value.split("#")[0].strip()
+        pairs.append((key.strip(), value))
+    return pairs
+
+
+def _migrate_legacy(cf: Path) -> None:
+    """Convert projects.conf and config into cf once. Never overwrites cf."""
+    if cf.exists():
+        return
+    legacy_projects = cf.parent / "projects.conf"
+    legacy_settings = cf.parent / "config"
+    if not legacy_projects.exists() and not legacy_settings.exists():
+        return
+
+    lines = ["# txs configuration (migrated from projects.conf and config)", ""]
+
+    if legacy_settings.exists():
+        lines.append(_SETTINGS_HEADER)
+        for key, value in _read_legacy_settings(legacy_settings):
+            lines.append(f"{_toml_key(key)} = {_toml_value(value)}")
+        lines.append("")
+
+    if legacy_projects.exists():
+        parser = configparser.RawConfigParser()
+        parser.optionxform = str
+        parser.read(legacy_projects, encoding="utf-8")
+        defaults = dict(parser.defaults())
+        if defaults:
+            lines.append(_DEFAULTS_HEADER)
+            for key, value in defaults.items():
+                lines.append(f"{_toml_key(key)} = {json.dumps(value)}")
+            lines.append("")
+        for section in parser.sections():
+            items = dict(parser.items(section))
+            body = {
+                k: v for k, v in items.items() if k not in defaults or defaults[k] != v
+            }
+            lines.append(_project_header(section))
+            for key, value in body.items():
+                if key == "max_depth" and re.fullmatch(r"\d+", value):
+                    lines.append(f"max_depth = {int(value)}")
+                else:
+                    lines.append(f"{_toml_key(key)} = {json.dumps(value)}")
+            lines.append("")
+
+    cf.parent.mkdir(parents=True, exist_ok=True)
+    cf.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+
+    for legacy in (legacy_projects, legacy_settings):
+        if legacy.exists():
+            legacy.rename(legacy.with_name(legacy.name + ".bak"))
+    info(
+        f"Migrated settings and projects to [green]{cf}[/green] (old files kept as .bak)"
+    )
+
+
 def parse_config(config_file: Path | None = None) -> ProjectConfig:
-    """Parse projects.conf and return a ProjectConfig (cached after first call)."""
+    """Parse config.toml and return a ProjectConfig (cached after first call)."""
     global _cache
     if _cache is not None and config_file is None:
         return _cache
 
     cf = config_file or CONFIG_FILE
+    _migrate_legacy(cf)
 
     if not cf.exists():
         from txs.log import error
@@ -108,54 +230,45 @@ def parse_config(config_file: Path | None = None) -> ProjectConfig:
         error(f"Config file not found: {cf}")
         raise SystemExit(1)
 
-    # configparser handles multiline values (indented continuation → joined with \n)
-    # RawConfigParser skips interpolation (% signs in paths etc.)
-    parser = configparser.RawConfigParser()
-    parser.optionxform = str  # preserve key case
+    try:
+        data = tomllib.loads(cf.read_text(encoding="utf-8"))
+    except tomllib.TOMLDecodeError as exc:
+        from txs.log import error
 
-    # configparser requires [DEFAULT] to be exactly that — which matches our format.
-    # We read the raw file first so we can warn on unknown keys, then use configparser
-    # for the actual parsing.
-    parser.read(cf, encoding="utf-8")
+        error(f"Invalid TOML in {cf}: {exc}")
+        raise SystemExit(1)
+
+    for section in data:
+        if section not in _TOP_LEVEL_SECTIONS:
+            warn(f"Unknown section '[{section}]' in {cf.name}")
 
     cfg = ProjectConfig()
 
-    # DEFAULT section
-    defaults = dict(parser.defaults())
-    _warn_unknown_keys(defaults, {"on_create", "session_name"}, "DEFAULT")
-    cfg.default_on_create = defaults.get("on_create", "")
-    cfg.default_session_name = defaults.get("session_name", "")
+    defaults = data.get("defaults") or {}
+    _warn_unknown_keys(defaults, _DEFAULT_KNOWN_KEYS, "defaults")
+    cfg.default_on_create = str(defaults.get("on_create", ""))
+    cfg.default_session_name = str(defaults.get("session_name", ""))
 
-    # Project sections
-    for section in parser.sections():
-        keys = dict(parser.items(section))
-        # configparser merges DEFAULT into every section — remove them for the
-        # unknown-key check, then we apply fallbacks explicitly.
-        section_only_keys = {
-            k: v
-            for k, v in keys.items()
-            if k not in defaults or parser.has_option(section, k)
-        }
-        _warn_unknown_keys(
-            section_only_keys,
-            {"path", "session_name", "on_create", "max_depth"},
-            section,
-        )
-        depth_raw = keys.get("max_depth", "0")
+    for name, body in (data.get("projects") or {}).items():
+        if not isinstance(body, dict):
+            warn(f"Project '{name}' must be a table, skipping")
+            continue
+        _warn_unknown_keys(body, _PROJECT_KNOWN_KEYS, f"projects.{name}")
+        depth_raw = body.get("max_depth", 0)
         try:
             depth = int(depth_raw)
-        except ValueError:
-            warn(f"Invalid max_depth '{depth_raw}' in [{section}], using 0")
+        except (TypeError, ValueError):
+            warn(f"Invalid max_depth '{depth_raw}' in [projects.{name}], using 0")
             depth = 0
-
-        proj = Project(
-            name=section,
-            path=keys.get("path", ""),
-            session_name=keys.get("session_name", ""),
-            on_create=keys.get("on_create", ""),
-            max_depth=depth,
+        cfg.projects.append(
+            Project(
+                name=name,
+                path=str(body.get("path", "")),
+                session_name=str(body.get("session_name", "")),
+                on_create=str(body.get("on_create", "")),
+                max_depth=depth,
+            )
         )
-        cfg.projects.append(proj)
 
     cfg._index_projects()
 
@@ -170,11 +283,6 @@ def _warn_unknown_keys(keys: dict, known: set, section: str) -> None:
     for k in keys:
         if k not in known:
             warn(f"Unknown key '{k}' in [{section}]")
-
-
-# ---------------------------------------------------------------------------
-# Property accessors  (mirrors get_project_prop in config.sh)
-# ---------------------------------------------------------------------------
 
 
 def get_project_prop(cfg: ProjectConfig, name: str, prop: str) -> str:
@@ -260,11 +368,6 @@ def find_depth_owner(cfg: ProjectConfig, dp_name: str) -> tuple[str, str] | None
     return cfg._depth_index.get(dp_name)
 
 
-# ---------------------------------------------------------------------------
-# Settings file  (mirrors get_txs_setting in config.sh)
-# ---------------------------------------------------------------------------
-
-
 def setting_is_true(key: str, settings_file: Path | None = None) -> bool:
     """Return True if a settings key is explicitly set to true."""
     return get_txs_setting(key, settings_file).lower() == "true"
@@ -298,48 +401,104 @@ def load_tui_settings(settings_file: Path | None = None) -> TuiSettingsView:
     )
 
 
+# ---------------------------------------------------------------------------
+# Settings  ([settings] table)
+# ---------------------------------------------------------------------------
+
+
 def get_txs_setting(key: str, settings_file: Path | None = None) -> str:
-    """Read a key from the simple key=value settings file."""
-    sf = settings_file or SETTINGS_FILE
-    if not sf.exists():
+    """Read a key from [settings]; booleans come back as 'true' / 'false'."""
+    data = _read_toml(settings_file or CONFIG_FILE)
+    value = (data.get("settings") or {}).get(key)
+    if value is None:
         return ""
-    for raw in sf.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        if "=" in line:
-            k, _, v = line.partition("=")
-            k = k.strip()
-            v = v.strip()
-            # strip inline comment (only when not quoted)
-            if not (v.startswith(('"', "'"))):
-                v = v.split("#")[0].strip()
-            if k == key:
-                return v
-    return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def _section_bounds(lines: list[str], header: str) -> tuple[int, int] | None:
+    """Return (first body line, first line after the section) for a table header."""
+    for i, line in enumerate(lines):
+        if line.strip() == header:
+            end = len(lines)
+            for j in range(i + 1, len(lines)):
+                if lines[j].lstrip().startswith("["):
+                    end = j
+                    break
+            return i + 1, end
+    return None
+
+
+def _is_assignment(line: str, key: str) -> bool:
+    return re.match(rf'^\s*"?{re.escape(key)}"?\s*=', line) is not None
 
 
 def set_txs_setting(key: str, value: str, settings_file: Path | None = None) -> None:
-    """Write or update a key in the simple key=value settings file."""
-    sf = settings_file or SETTINGS_FILE
-    sf.parent.mkdir(parents=True, exist_ok=True)
+    """Set a key in [settings], editing only that line so comments survive."""
+    cf = settings_file or CONFIG_FILE
+    _migrate_legacy(cf)
+    lines = cf.read_text(encoding="utf-8").splitlines() if cf.exists() else []
+    assignment = f"{_toml_key(key)} = {_toml_value(value)}"
 
-    lines: list[str] = []
-    found = False
-    if sf.exists():
-        for raw in sf.read_text(encoding="utf-8").splitlines():
-            stripped = raw.strip()
-            if stripped and not stripped.startswith("#") and "=" in stripped:
-                k, _, _ = stripped.partition("=")
-                if k.strip() == key:
-                    lines.append(f"{key} = {value}")
-                    found = True
-                    continue
-            lines.append(raw)
-    if not found:
+    bounds = _section_bounds(lines, _SETTINGS_HEADER)
+    if bounds is None:
         if lines and lines[-1].strip():
             lines.append("")
-        lines.append(f"{key} = {value}")
+        lines += [_SETTINGS_HEADER, assignment]
+    else:
+        begin, end = bounds
+        for i in range(begin, end):
+            if _is_assignment(lines[i], key):
+                lines[i] = assignment
+                break
+        else:
+            insert_at = begin
+            for i in range(begin, end):
+                if lines[i].strip():
+                    insert_at = i + 1
+            lines.insert(insert_at, assignment)
 
-    text = "\n".join(lines).rstrip()
-    sf.write_text(f"{text}\n" if text else "", encoding="utf-8")
+    cf.parent.mkdir(parents=True, exist_ok=True)
+    cf.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Project writers  ([projects."<name>"] tables)
+# ---------------------------------------------------------------------------
+
+
+def project_exists(name: str, config_file: Path | None = None) -> bool:
+    data = _read_toml(config_file or CONFIG_FILE)
+    return name in (data.get("projects") or {})
+
+
+def add_project(name: str, path: str, config_file: Path | None = None) -> None:
+    cf = config_file or CONFIG_FILE
+    _migrate_legacy(cf)
+    text = cf.read_text(encoding="utf-8") if cf.exists() else ""
+    if text and not text.endswith("\n"):
+        text += "\n"
+    cf.parent.mkdir(parents=True, exist_ok=True)
+    cf.write_text(
+        f"{text}\n{_project_header(name)}\npath = {json.dumps(path)}\n",
+        encoding="utf-8",
+    )
+
+
+def remove_project(name: str, config_file: Path | None = None) -> None:
+    """Delete a project's table (header through the next table or EOF)."""
+    cf = config_file or CONFIG_FILE
+    _migrate_legacy(cf)
+    lines = cf.read_text(encoding="utf-8").splitlines()
+    header = _project_header(name)
+    start = next(i for i, line in enumerate(lines) if line.strip() == header)
+    end = len(lines)
+    for j in range(start + 1, len(lines)):
+        if lines[j].lstrip().startswith("["):
+            end = j
+            break
+    del lines[start:end]
+    while lines and not lines[-1].strip():
+        lines.pop()
+    cf.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")

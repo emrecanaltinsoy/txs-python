@@ -41,7 +41,7 @@ def test_tui_attaches_configured_bare_worktree(tmp_path, monkeypatch, picker):
     worktree.mkdir(parents=True)
     other.mkdir(parents=True)
     conf = tmp_path / "projects.conf"
-    conf.write_text(f"[repo]\npath = {tmp_path}\n")
+    conf.write_text(f'[projects.repo]\npath = "{tmp_path}"\n')
     cfg = config.parse_config(conf)
     opened = Mock()
     monkeypatch.setattr(config, "parse_config", lambda: cfg)
