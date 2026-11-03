@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -94,68 +94,6 @@ def invalidate_window_cache() -> None:
 # ---------------------------------------------------------------------------
 
 
-def find_window_by_path(session: str, worktree_path: str) -> str | None:
-    """Return window index if any pane in the session is at worktree_path."""
-    worktree_path = worktree_path.rstrip("/") or "/"
-    prefix = worktree_path.rstrip("/") + "/"
-    result = subprocess.run(
-        [
-            "tmux",
-            "list-panes",
-            "-t",
-            f"={session}",
-            "-s",
-            "-F",
-            "#{window_index}|#{pane_current_path}",
-        ],
-        capture_output=True,
-        text=True,
-    )
-    for line in result.stdout.splitlines():
-        if not line:
-            continue
-        win_index, _, pane_path = line.partition("|")
-        if pane_path == worktree_path or pane_path.startswith(prefix):
-            return win_index
-    return None
-
-
-def attach_or_switch_window(session: str, win_index: str) -> None:
-    """Switch to a specific window in a session."""
-    target = f"={session}:{win_index}"
-    if is_inside_tmux():
-        subprocess.run(["tmux", "switch-client", "-t", target], check=True)
-        return
-
-    has_tty = os.isatty(0) and os.isatty(1)
-    if has_tty:
-        subprocess.run(["tmux", "attach-session", "-t", target], check=True)
-        return
-
-    # Find any attached client and redirect it
-    res = subprocess.run(
-        ["tmux", "list-clients", "-F", "#{client_tty}"],
-        capture_output=True,
-        text=True,
-    )
-    clients = [line for line in res.stdout.splitlines() if line]
-    if clients:
-        subprocess.run(
-            ["tmux", "switch-client", "-c", clients[0], "-t", target], check=True
-        )
-        return
-
-    from txs.log import error
-
-    error("Cannot attach to tmux: no interactive terminal or tmux client available.")
-    raise SystemExit(1)
-
-
-# ---------------------------------------------------------------------------
-# Agent helpers
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class AgentInfo:
     session: str
@@ -179,8 +117,6 @@ class TmuxSnapshot:
     sessions: tuple[str, ...]
     windows_by_session: dict[str, list[str]]
     agents: list[AgentInfo]
-    pane_locations: dict[str, list[tuple[str, str]]] = field(default_factory=dict)
-    # session -> [(window_index, pane_current_path), ...]
 
     @classmethod
     def fetch(cls) -> TmuxSnapshot:
@@ -201,7 +137,6 @@ class TmuxSnapshot:
                     windows_by_session.setdefault(session, []).append(window)
 
         agents: list[AgentInfo] = []
-        pane_locations: dict[str, list[tuple[str, str]]] = {}
         pane_result = subprocess.run(
             [
                 "tmux",
@@ -230,7 +165,6 @@ class TmuxSnapshot:
                     label,
                     command,
                 ) = parts
-                pane_locations.setdefault(session, []).append((win_index, pane_path))
                 if window == AGENTS_WINDOW:
                     agents.append(
                         AgentInfo(
@@ -249,7 +183,6 @@ class TmuxSnapshot:
             sessions=sessions,
             windows_by_session=windows_by_session,
             agents=agents,
-            pane_locations=pane_locations,
         )
 
     @property
@@ -258,15 +191,6 @@ class TmuxSnapshot:
 
     def windows_label(self, session: str) -> str:
         return ", ".join(self.windows_by_session.get(session, []))
-
-    def window_for_path(self, session: str, worktree_path: str) -> str | None:
-        """Return window index if any pane in session is at worktree_path."""
-        worktree_path = worktree_path.rstrip("/") or "/"
-        prefix = worktree_path.rstrip("/") + "/"
-        for win_index, pane_path in self.pane_locations.get(session, []):
-            if pane_path == worktree_path or pane_path.startswith(prefix):
-                return win_index
-        return None
 
 
 def get_agents() -> list[AgentInfo]:
@@ -483,46 +407,51 @@ def capture_active_pane(session: str) -> str:
     return result.stdout if result.returncode == 0 else ""
 
 
-def open_worktree_in_session(
-    session: str, worktree_path: str, on_create: str = ""
-) -> None:
-    """Switch to an existing window at worktree_path, or open a new one."""
-    matched_win = find_window_by_path(session, worktree_path)
-    if matched_win is not None:
-        attach_or_switch_window(session, matched_win)
-        return
+# ---------------------------------------------------------------------------
+# Worktree sessions — one tmux session per bare-repo worktree
+# ---------------------------------------------------------------------------
 
-    import os as _os
+WORKTREE_SESSION_MAX_LEN = 24  # default for `worktree_session_max_len`
 
-    result = subprocess.run(
-        [
-            "tmux",
-            "new-window",
-            "-a",
-            "-t",
-            f"={session}",
-            "-n",
-            _os.path.basename(worktree_path),
-            "-c",
-            worktree_path,
-            "-P",
-            "-F",
-            "#{window_index}",
-        ],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    new_win = result.stdout.strip()
 
-    if on_create:
+def worktree_session_name(base: str, wt_path: str) -> str:
+    """Session name for a worktree: ``<base>/<worktree>``.
+
+    The worktree part is truncated when ``worktree_session_truncate`` is on
+    (default) to ``worktree_session_max_len`` characters.
+    """
+    from txs.config import get_txs_setting, setting_bool
+
+    name = os.path.basename(wt_path.rstrip("/"))
+    if setting_bool("worktree_session_truncate", default=True):
+        try:
+            max_len = int(get_txs_setting("worktree_session_max_len") or 0)
+        except ValueError:
+            max_len = 0
+        if max_len < 1:
+            max_len = WORKTREE_SESSION_MAX_LEN
+        name = name[:max_len]
+    return sanitize_session_name(f"{base}/{name}")
+
+
+def attach_worktree(base: str, wt_path: str, on_create: str = "") -> str:
+    """Open (creating if needed) the worktree's session and switch to it.
+
+    ``on_create`` runs once, when the session is first created.
+    Returns the session name.
+    """
+    session = worktree_session_name(base, wt_path)
+    if not session_exists(session):
+        subprocess.run(
+            ["tmux", "new-session", "-d", "-s", session, "-c", wt_path],
+            check=True,
+        )
         for cmd in on_create.splitlines():
             cmd = cmd.strip()
-            if not cmd:
-                continue
-            subprocess.run(
-                ["tmux", "send-keys", "-t", f"={session}:{new_win}", cmd, "Enter"],
-                check=True,
-            )
-
-    attach_or_switch_window(session, new_win)
+            if cmd:
+                subprocess.run(
+                    ["tmux", "send-keys", "-t", f"={session}:", cmd, "Enter"],
+                    check=True,
+                )
+    attach_or_switch(session)
+    return session

@@ -25,7 +25,6 @@ from txs.config import (
     parse_config,
 )
 from txs.git import (
-    depth_session_name,
     get_depth_projects,
     get_project_worktrees,
     is_bare_repo,
@@ -34,11 +33,9 @@ from txs.log import error
 from txs.tmux import (
     attach_or_switch,
     fetch_session_windows,
-    find_window_by_path,
     get_active_sessions,
     get_session_windows,
-    open_worktree_in_session,
-    sanitize_session_name,
+    worktree_session_name,
 )
 
 
@@ -216,9 +213,12 @@ def _collect_active_session_entries(
     active_sessions: list[str],
     seen_projects: set[str],
     seen_depth_sessions: set[str],
-    switch_mode: bool = False,
 ) -> list[PickerEntry]:
-    """Build picker entries for all active sessions."""
+    """Build picker entries for all active sessions.
+
+    Worktrees are sessions of their own (``<project>/<worktree>``), so they
+    come through here like any other session.
+    """
     entries: list[PickerEntry] = []
 
     for session in active_sessions:
@@ -231,68 +231,21 @@ def _collect_active_session_entries(
             seen_depth_sessions.add(session)
             tag_root = expand_path(get_project_prop(cfg, depth_proj, "path"))
             tag = _depth_project_tag(tag_root, dp_path)
-
-            if dp_path and os.path.isdir(dp_path) and is_bare_repo(dp_path):
-                for wt, wt_name in sorted(
-                    get_project_worktrees(dp_path), key=lambda x: x[1]
-                ):
-                    matched = find_window_by_path(session, wt)
-                    if switch_mode and matched is None:
-                        continue
-                    marker = "*" if matched else " "
-                    state = "[active]" if matched else "[no window]"
-                    entries.append(
-                        PickerEntry(
-                            marker=marker,
-                            session=session,
-                            project=depth_proj,
-                            wt_path=wt,
-                            name=f"[{tag}] {session} - {wt_name}",
-                            state=state,
-                        )
-                    )
-            else:
-                windows = get_session_windows(session)
-                entries.append(
-                    PickerEntry(
-                        marker="*",
-                        session=session,
-                        project=depth_proj,
-                        wt_path="-",
-                        name=f"[{tag}] {session}",
-                        state=f"[{windows}]",
-                    )
+            entries.append(
+                PickerEntry(
+                    marker="*",
+                    session=session,
+                    project=depth_proj,
+                    wt_path="-",
+                    name=f"[{tag}] {session}",
+                    state=f"[{get_session_windows(session)}]",
                 )
+            )
             continue
 
         display_name = proj or session
-
         if proj:
             seen_projects.add(proj)
-            path = expand_path(get_project_prop(cfg, proj, "path"))
-
-            if os.path.isdir(path) and is_bare_repo(path):
-                for wt, wt_name in sorted(
-                    get_project_worktrees(path), key=lambda x: x[1]
-                ):
-                    matched = find_window_by_path(session, wt)
-                    if switch_mode and matched is None:
-                        continue
-                    marker = "*" if matched else " "
-                    state = "[active]" if matched else "[no window]"
-                    entries.append(
-                        PickerEntry(
-                            marker=marker,
-                            session=session,
-                            project=proj,
-                            wt_path=wt,
-                            name=f"{display_name} - {wt_name}",
-                            state=state,
-                        )
-                    )
-                continue
-
-        windows = get_session_windows(session)
         entries.append(
             PickerEntry(
                 marker="*",
@@ -300,7 +253,7 @@ def _collect_active_session_entries(
                 project=proj or "-",
                 wt_path="-",
                 name=display_name,
-                state=f"[{windows}]",
+                state=f"[{get_session_windows(session)}]",
             )
         )
 
@@ -311,9 +264,11 @@ def _collect_inactive_project_entries(
     cfg: ProjectConfig,
     seen_projects: set[str],
     seen_depth_sessions: set[str],
+    active_sessions: list[str],
 ) -> list[PickerEntry]:
-    """Build picker entries for inactive projects."""
+    """Build picker entries for projects and worktrees with no open session."""
     entries: list[PickerEntry] = []
+    active = set(active_sessions)
 
     for proj in cfg.projects:
         depth = proj.max_depth
@@ -334,6 +289,8 @@ def _collect_inactive_project_entries(
                     for wt, wt_name in sorted(
                         get_project_worktrees(dp_path), key=lambda x: x[1]
                     ):
+                        if worktree_session_name(dp_name, wt) in active:
+                            continue
                         entries.append(
                             PickerEntry(
                                 marker="+",
@@ -357,13 +314,14 @@ def _collect_inactive_project_entries(
                     )
             continue
 
-        if proj.name in seen_projects:
-            continue
         if not os.path.isdir(path):
             continue
 
         if is_bare_repo(path):
+            session_name = get_project_prop(cfg, proj.name, "session_name")
             for wt, wt_name in sorted(get_project_worktrees(path), key=lambda x: x[1]):
+                if worktree_session_name(session_name, wt) in active:
+                    continue
                 entries.append(
                     PickerEntry(
                         marker="+",
@@ -374,17 +332,20 @@ def _collect_inactive_project_entries(
                         state="",
                     )
                 )
-        else:
-            entries.append(
-                PickerEntry(
-                    marker="+",
-                    session="-",
-                    project=proj.name,
-                    wt_path="-",
-                    name=proj.name,
-                    state="",
-                )
+            continue
+
+        if proj.name in seen_projects:
+            continue
+        entries.append(
+            PickerEntry(
+                marker="+",
+                session="-",
+                project=proj.name,
+                wt_path="-",
+                name=proj.name,
+                state="",
             )
+        )
 
     return entries
 
@@ -412,7 +373,7 @@ def cmd_interactive() -> None:
         cfg, active_sessions, seen_projects, seen_depth_sessions
     )
     entries += _collect_inactive_project_entries(
-        cfg, seen_projects, seen_depth_sessions
+        cfg, seen_projects, seen_depth_sessions, active_sessions
     )
 
     if not entries:
@@ -459,7 +420,6 @@ def cmd_switch() -> None:
         active_sessions,
         seen_projects,
         seen_depth_sessions,
-        switch_mode=True,
     )
 
     if not entries:
@@ -477,10 +437,7 @@ def cmd_switch() -> None:
         return
 
     entry = PickerEntry.from_row(selected)
-    if entry.wt_path:
-        open_worktree_in_session(entry.session, entry.wt_path)
-    else:
-        attach_or_switch(entry.session)
+    attach_or_switch(entry.session)
 
 
 # ---------------------------------------------------------------------------
@@ -489,49 +446,25 @@ def cmd_switch() -> None:
 
 
 def _handle_selection(cfg: ProjectConfig, entry: PickerEntry) -> None:
-    """Attach the selected project or exact worktree from the fzf picker."""
+    """Attach the selected session, project, or worktree from the fzf picker."""
     from txs.commands import (  # late import to avoid circular dependency
-        _attach_bare_repo,
-        _ensure_session,
+        attach_depth_target,
         cmd_attach,
     )
 
     match entry.marker:
         case "*":
-            if entry.wt_path:
-                open_worktree_in_session(entry.session, entry.wt_path)
-            else:
-                attach_or_switch(entry.session)
-
-        case " ":
-            if entry.wt_path and entry.session:
-                open_worktree_in_session(entry.session, entry.wt_path)
+            attach_or_switch(entry.session)
 
         case "+":
             if entry.wt_path:
                 proj_path = expand_path(get_project_prop(cfg, entry.project, "path"))
-
                 if os.path.isdir(proj_path) and is_bare_repo(proj_path):
-                    # Direct bare repo project worktree
                     cmd_attach(entry.project, entry.wt_path)
                 else:
-                    # Depth-discovered repo (normal or bare worktree)
                     on_create = get_project_prop(cfg, entry.project, "on_create")
-                    sname = sanitize_session_name(depth_session_name(entry.wt_path))
-                    parent = os.path.dirname(entry.wt_path)
-
-                    if is_bare_repo(parent):
-                        created = _ensure_session(sname, parent, on_create) == "created"
-                        _attach_bare_repo(
-                            entry.project,
-                            parent,
-                            sname,
-                            on_create,
-                            entry.wt_path,
-                            created,
-                        )
-                    else:
-                        _ensure_session(sname, entry.wt_path, on_create)
-                        attach_or_switch(sname)
+                    attach_depth_target(
+                        entry.project, on_create, path="", wt_path=entry.wt_path
+                    )
             else:
                 cmd_attach(entry.project)

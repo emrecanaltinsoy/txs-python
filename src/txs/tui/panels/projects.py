@@ -17,7 +17,7 @@ from txs.config import (
     is_explicit_project_path,
 )
 from txs.git import get_depth_projects, get_project_worktrees, is_bare_repo
-from txs.tmux import TmuxSnapshot, sanitize_session_name
+from txs.tmux import TmuxSnapshot, sanitize_session_name, worktree_session_name
 from txs.tui.panels.base import TxsTreePanel
 
 
@@ -71,6 +71,12 @@ class ProjectsPanel(TxsTreePanel):
 
     def set_filter(self, text: str) -> None:
         self._filter = text
+
+    def fzf_parent_text(self, parent: TreeNode) -> str:
+        """Depth-discovery group nodes are containers: no prefix for their children."""
+        if isinstance(parent.data, ProjectNode) and not parent.data.session_name:
+            return ""
+        return super().fzf_parent_text(parent)
 
     def selected_node_data(self) -> ProjectNode | None:
         if self.cursor_node is None:
@@ -127,34 +133,45 @@ class ProjectsPanel(TxsTreePanel):
         cfg: ProjectConfig,
         active_sessions: set[str],
     ) -> None:
-        active = session_name in active_sessions
-        label = self._project_label(proj_name, active)
+        """Bare repo: one row per worktree; each worktree is its own session."""
+        worktrees = sorted(get_project_worktrees(path), key=lambda x: x[1])
+        visible = [
+            (wt, wt_name)
+            for wt, wt_name in worktrees
+            if not self._filter
+            or self.subsequence_match(self._filter, wt_name)
+            or self.subsequence_match(self._filter, proj_name)
+        ]
+        if self._filter and not visible:
+            return
+
+        wt_sessions = {
+            wt: worktree_session_name(session_name, wt) for wt, _ in worktrees
+        }
+        any_active = any(name in active_sessions for name in wt_sessions.values())
         node = self.root.add(
-            label,
+            self._project_label(proj_name, any_active),
             data=ProjectNode(project=proj_name, path=path, session_name=session_name),
             expand=False,
         )
-        children_added = 0
-        for wt, wt_name in sorted(get_project_worktrees(path), key=lambda x: x[1]):
-            if (
-                self._filter
-                and not self.subsequence_match(self._filter, wt_name)
-                and not self.subsequence_match(self._filter, proj_name)
-            ):
-                continue
+        for wt, wt_name in visible:
+            wsess = wt_sessions[wt]
             node.add_leaf(
-                f"  [dim]{wt_name}[/dim]",
+                self._worktree_label(wt_name, wsess in active_sessions),
                 data=ProjectNode(
                     project=proj_name,
                     path=path,
-                    session_name=session_name,
+                    session_name=wsess,
                     wt_path=wt,
                     is_leaf=True,
                 ),
             )
-            children_added += 1
-        if self._filter and children_added == 0:
-            node.remove()
+
+    @staticmethod
+    def _worktree_label(wt_name: str, active: bool) -> str:
+        if active:
+            return f"[green]* {wt_name}[/green]"
+        return f"[dim]  {wt_name}[/dim]"
 
     def _add_depth_project(
         self,
@@ -184,31 +201,35 @@ class ProjectsPanel(TxsTreePanel):
                 continue
 
             sname = sanitize_session_name(dp_name)
-            active = sname in active_sessions
-            child_label = f"  {self._session_status(active)}{dp_name}"
 
             if is_bare_repo(dp_path):
+                worktrees = sorted(get_project_worktrees(dp_path), key=lambda x: x[1])
+                wt_sessions = {
+                    wt: worktree_session_name(dp_name, wt) for wt, _ in worktrees
+                }
+                any_active = any(n in active_sessions for n in wt_sessions.values())
                 child_node = node.add(
-                    child_label,
+                    f"  {self._session_status(any_active)}{dp_name}",
                     data=ProjectNode(
                         project=proj_name, path=dp_path, session_name=sname
                     ),
                     expand=False,
                 )
-                for wt, wt_name in sorted(
-                    get_project_worktrees(dp_path), key=lambda x: x[1]
-                ):
+                for wt, wt_name in worktrees:
+                    wsess = wt_sessions[wt]
                     child_node.add_leaf(
-                        f"    [dim]{wt_name}[/dim]",
+                        self._worktree_label(wt_name, wsess in active_sessions),
                         data=ProjectNode(
                             project=proj_name,
                             path=dp_path,
-                            session_name=sname,
+                            session_name=wsess,
                             wt_path=wt,
                             is_leaf=True,
                         ),
                     )
             else:
+                active = sname in active_sessions
+                child_label = f"  {self._session_status(active)}{dp_name}"
                 node.add_leaf(
                     child_label,
                     data=ProjectNode(

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import os
 import re
-import shlex
 import shutil
 import subprocess
 import sys
@@ -27,6 +26,7 @@ from txs.config import (
     parse_config,
 )
 from txs.git import (
+    depth_session_name,
     get_project_worktrees,
     get_repo_info,
     is_bare_repo,
@@ -38,11 +38,13 @@ from txs.git import (
 from txs.log import error, info
 from txs.tmux import (
     attach_or_switch,
+    attach_worktree,
     fetch_session_windows,
     get_active_sessions,
     get_session_windows,
     is_inside_tmux,
-    open_worktree_in_session,
+    sanitize_session_name,
+    worktree_session_name,
     session_exists,
 )
 
@@ -90,9 +92,8 @@ def _attach_bare_repo(
     session_name: str,
     on_create: str,
     worktree_selector: str,
-    just_created: bool,
 ) -> None:
-    """Attach a bare worktree selected by exact path or CLI basename."""
+    """Open the selected worktree in its own session (``<project>/<worktree>``)."""
     from txs.ui import pick_worktree  # avoid top-level circular import
 
     target_wt_path = ""
@@ -108,39 +109,37 @@ def _attach_bare_repo(
     else:
         branch = pick_worktree(path)
         if branch is None:
-            attach_or_switch(session_name)
             return
         target_wt_path = compute_wt_path(path, "bare", branch)
 
     if not target_wt_path:
         return
 
-    if just_created:
-        subprocess.run(
-            [
-                "tmux",
-                "send-keys",
-                "-t",
-                f"={session_name}:",
-                f"cd {shlex.quote(target_wt_path)}",
-                "Enter",
-            ],
-            check=True,
-        )
-        subprocess.run(
-            [
-                "tmux",
-                "rename-window",
-                "-t",
-                f"={session_name}:",
-                os.path.basename(target_wt_path),
-            ],
-            check=True,
-        )
-        _send_on_create(session_name, on_create)
-        attach_or_switch(session_name)
+    attach_worktree(session_name, target_wt_path, on_create)
+
+
+def attach_depth_target(
+    project: str, on_create: str, path: str, wt_path: str = ""
+) -> None:
+    """Attach a depth-discovered repo, or one of its worktrees.
+
+    ``wt_path`` set and inside a bare repo → that worktree's session.
+    Otherwise ``path`` (or ``wt_path`` for normal repos) gets a repo session.
+    """
+    if wt_path:
+        parent = os.path.dirname(wt_path)
+        if is_bare_repo(parent):
+            attach_worktree(os.path.basename(parent), wt_path, on_create)
+            return
+        target = wt_path
+    elif is_bare_repo(path):
+        _attach_bare_repo(project, path, os.path.basename(path), on_create, "")
+        return
     else:
-        open_worktree_in_session(session_name, target_wt_path, on_create)
+        target = path
+    sname = sanitize_session_name(depth_session_name(target))
+    _ensure_session(sname, target, on_create)
+    attach_or_switch(sname)
 
 
 # ---------------------------------------------------------------------------
@@ -225,11 +224,14 @@ def _ls_projects() -> None:
         if not os.path.isdir(path):
             continue
         session_name = get_project_prop(cfg, proj.name, "session_name")
-        status = (
-            "[green]active[/green]"
-            if session_name in active_sessions
-            else "[dim]inactive[/dim]"
-        )
+        if is_bare_repo(path):
+            is_active = any(
+                worktree_session_name(session_name, wt) in active_sessions
+                for wt, _ in get_project_worktrees(path)
+            )
+        else:
+            is_active = session_name in active_sessions
+        status = "[green]active[/green]" if is_active else "[dim]inactive[/dim]"
         con.print(f"  [cyan]{proj.name}[/cyan]  [{status}]  {path}")
 
 
@@ -288,15 +290,11 @@ def cmd_attach(project: str = "", worktree_selector: str = "") -> None:
         error(f"Directory does not exist: {path}")
         raise SystemExit(1)
 
-    session_state = _ensure_session(session_name, path, on_create)
-    just_created = session_state == "created"
-
     if is_bare_repo(path):
-        _attach_bare_repo(
-            project, path, session_name, on_create, worktree_selector, just_created
-        )
+        _attach_bare_repo(project, path, session_name, on_create, worktree_selector)
         return
 
+    _ensure_session(session_name, path, on_create)
     attach_or_switch(session_name)
 
 

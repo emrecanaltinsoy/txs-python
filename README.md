@@ -160,6 +160,8 @@ fzf_height = 50%
 | `fzf_height`     | `50%`   | Height of fzf picker (percentage or line count)          |
 | `tui_trees_expanded` | `true`  | Expand all tree branches when the TUI starts        |
 | `tui_theme`          | `textual-dark` | Textual theme for the TUI (command palette → Theme) |
+| `worktree_session_truncate` | `true` | Shorten worktree session names (`project/branch`) to `worktree_session_max_len` |
+| `worktree_session_max_len`  | `24`   | Max length of the worktree part of a session name |
 
 For additional fzf customization (colors, keybindings, layout, etc.), use the
 `FZF_DEFAULT_OPTS` environment variable. See `man fzf` for available options.

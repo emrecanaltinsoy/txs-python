@@ -74,17 +74,23 @@ class TxsTreePanel(Tree):
         _walk(self.root)
         return leaves
 
-    @staticmethod
-    def leaf_label(node: TreeNode) -> str:
+    def leaf_label(self, node: TreeNode) -> str:
         """Plain 'parent › leaf' text for the fzf picker."""
         leaf = node.label.plain if hasattr(node.label, "plain") else str(node.label)
         parent = node.parent
-        if parent is None or parent.label is None:
+        # Skip the hidden root node so top-level items aren't prefixed.
+        if parent is None or parent.parent is None or parent.label is None:
             return leaf.strip()
-        parent_text = (
+        parent_text = self.fzf_parent_text(parent).strip()
+        if not parent_text:
+            return leaf.strip()
+        return f"{parent_text} › {leaf.strip()}"
+
+    def fzf_parent_text(self, parent: TreeNode) -> str:
+        """Parent text used in fzf rows; subclasses may override to simplify."""
+        return (
             parent.label.plain if hasattr(parent.label, "plain") else str(parent.label)
         )
-        return f"{parent_text.strip()} › {leaf.strip()}"
 
     def reveal_node(self, node: TreeNode) -> None:
         """Expand ancestors of ``node`` and move the cursor onto it."""

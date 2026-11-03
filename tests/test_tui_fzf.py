@@ -109,6 +109,14 @@ def test_leaf_label_prefixes_parent_name():
     _with_panel(check)
 
 
+def test_leaf_label_has_no_prefix_for_top_level_leaf():
+    def check(panel: _Panel) -> None:
+        solo = panel.root.add_leaf("solo", data=_Item("solo", is_leaf=True))
+        assert panel.leaf_label(solo) == "solo"
+
+    _with_panel(check)
+
+
 def test_reveal_node_expands_parent_and_moves_cursor():
     def check(panel: _Panel) -> None:
         target = panel.leaf_nodes()[2]
@@ -175,3 +183,35 @@ class TestSlashKey:
         )
         assert r["shown"] is False
         assert r["exited"] is False
+
+
+def test_projects_depth_group_gives_no_prefix():
+    from txs.tui.panels.projects import ProjectNode, ProjectsPanel
+
+    group = SimpleNamespace(
+        label=Text.from_markup("[cyan]Projects[/cyan]  [dim][depth=2][/dim]"),
+        data=ProjectNode(project="Projects", path="/p"),
+        parent=SimpleNamespace(parent=None),
+    )
+    leaf = SimpleNamespace(label=Text("  * dummy-src"), parent=group)
+    assert ProjectsPanel.leaf_label(ProjectsPanel.__new__(ProjectsPanel), leaf) == (
+        "* dummy-src"
+    )
+
+
+def test_sessions_nodes_are_selectable_leaves():
+    from txs.tui.panels.sessions import SessionNode, SessionsPanel
+
+    class Host(App):
+        def compose(self):
+            yield SessionsPanel()
+
+    async def run() -> None:
+        async with Host().run_test() as pilot:
+            await pilot.pause()
+            panel = pilot.app.query_one(SessionsPanel)
+            panel.root.add_leaf("* s1", data=SessionNode(session="s1"))
+            panel.root.add_leaf("* s2", data=SessionNode(session="s2"))
+            assert [n.data.session for n in panel.leaf_nodes()] == ["s1", "s2"]
+
+    asyncio.run(run())

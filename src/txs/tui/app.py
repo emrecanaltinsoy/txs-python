@@ -16,18 +16,20 @@ from textual.worker import Worker, WorkerState
 from txs.config import parse_config
 from txs.tmux import (
     get_active_sessions as _get_active_sessions,
+)
+from txs.tmux import (
     get_session_worktree_paths,
     kill_agent,
     kill_session_inplace,
     launch_agent,
 )
-from txs.tui.sync import TuiRefreshBundle, fetch_refresh_bundle, maybe_reload_config
 from txs.tui.fzf import fzf_available, run_fzf_pick
 from txs.tui.panels.agents import AgentNode, AgentsPanel
 from txs.tui.panels.base import TxsTreePanel
 from txs.tui.panels.preview import PreviewPanel
 from txs.tui.panels.projects import ProjectNode, ProjectsPanel
 from txs.tui.panels.sessions import SessionsPanel
+from txs.tui.sync import TuiRefreshBundle, fetch_refresh_bundle, maybe_reload_config
 from txs.tui.theme import apply_saved_theme, open_theme_palette, persist_theme
 
 # ---------------------------------------------------------------------------
@@ -641,9 +643,9 @@ class TxsApp(App):
 
     def _attach_selected_session(self) -> None:
         data = self.query_one(SessionsPanel).selected_node_data()
-        if data is None or not data.is_leaf:
+        if data is None:
             return
-        self.app.exit(("attach_session", data.session, data.wt_path))
+        self.app.exit(("attach_session", data.session))
 
     def action_attach(self) -> None:
         pid = self._active_panel_id()
